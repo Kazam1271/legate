@@ -22,10 +22,16 @@ implemented and tested. Nothing is deployed yet. See
 |---|---|
 | `vela-app/app/math.go` — 512-bit `mulDiv` fixed-point math | Implemented, tested |
 | `vela-app/app/netting.go` — batch netting, k-anonymity guard | Implemented, tested |
-| `vela-app/app/ledger.go` — private per-strategy ledger and NAV | Not started |
+| `vela-app/app/state.go` — confidential state, mandates, NAV | Implemented, tested |
+| `vela-app/app/ledger.go` — deposits, shares, redemption, intents | Implemented, tested |
+| `vela-app/app/settle.go` — fill allocation after execution | Not started |
 | `vela-app/main.go` — Vela WASM exports | Stub |
 | `sdk/` — strategist intent client | Stub |
 | `contracts/LegateTrigger.sol` — execution trigger | Not started |
+
+The engine compiles to WASM under TinyGo 0.39.0, so it is deployable into a Vela
+enclave as-is. Toolchain setup is in [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md);
+`cd vela-app && ./build.sh doctor` checks it.
 
 ## Why
 
