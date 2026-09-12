@@ -15,16 +15,47 @@ const (
 	RequestTypeDeanonymization int32 = 2
 )
 
-// Event subtypes. These become indexed log topics, so they must not leak
-// anything sensitive; they are coarse labels only.
+// Event subtypes. These become public indexed log topics, so they must not leak
+// anything sensitive.
+//
+// Every user command answers with the same "receipt" subtype, whatever the
+// command and whatever the outcome. Distinct subtypes per command would announce
+// which command a wallet sent even though its payload is encrypted and padded,
+// and distinct subtypes per outcome would announce every rejection.
 const (
 	subtypeDeposit    = "deposit"
-	subtypeAllocated  = "allocated"
-	subtypeRedeemed   = "redeemed"
-	subtypeIntent     = "intent_accepted"
+	subtypeReceipt    = "receipt"
 	subtypeBatchOrder = "batch_order"
 	subtypeFills      = "fills"
 )
+
+// Receipt statuses.
+const (
+	statusAccepted = "accepted"
+	statusRejected = "rejected"
+)
+
+// EventPadSize is the size every private event body is padded to, or a multiple
+// of it for bodies that cannot fit.
+//
+// The recipient of a user event is not public, but its encrypted length is, and
+// an accepted receipt and a rejected one say different things. Unpadded, their
+// lengths would differ and a rejection would be visible after all.
+const EventPadSize = 1024
+
+// maxReasonLen caps a rejection reason so a receipt always fits one padded
+// bucket. A reason long enough to spill into a second bucket would make that
+// particular rejection larger than any acceptance.
+const maxReasonLen = 256
+
+// Receipt is the private answer to a user command.
+type Receipt struct {
+	Type    string            `json:"type"`
+	Command string            `json:"command"`
+	Status  string            `json:"status"`
+	Reason  string            `json:"reason,omitempty"`
+	Detail  map[string]string `json:"detail,omitempty"`
+}
 
 // Fuel costs, roughly proportional to the work each operation does.
 var (
@@ -260,20 +291,119 @@ func ProcessRequest(sender *types.Address, requestType int32, payloadJSON, state
 		return types.ProcessResult{Error: fmt.Sprintf("process: bad payload: %v", err)}
 	}
 
+	req := &commandRequest{st: st, sender: *sender, command: instr.Command, original: stateJSON}
+
 	switch instr.Command {
 	case "register_strategy":
-		return handleRegisterStrategy(st, *sender, instr.RegisterStrategy)
+		return handleRegisterStrategy(req, instr.RegisterStrategy)
 	case "allocate":
-		return handleAllocate(st, *sender, instr.Allocate)
+		return handleAllocate(req, instr.Allocate)
 	case "redeem":
-		return handleRedeem(st, *sender, instr.Redeem)
+		return handleRedeem(req, instr.Redeem)
 	case "submit_intent":
-		return handleSubmitIntent(st, *sender, instr.Intent)
+		return handleSubmitIntent(req, instr.Intent)
 	case "close_batch":
-		return handleCloseBatch(st, *sender, instr.CloseBatch)
+		return handleCloseBatch(req, instr.CloseBatch)
 	default:
-		return types.ProcessResult{Error: fmt.Sprintf("process: %v: %q", ErrUnknownCommand, instr.Command)}
+		return malformed("process: %v: %q", ErrUnknownCommand, instr.Command)
 	}
+}
+
+// commandRequest is one user command in flight, and the only way it may answer.
+//
+// There are two kinds of failure, and they are published differently.
+//
+// A malformed request — bad padding, unparseable JSON, a missing parameter —
+// fails publicly, because the reason depends only on what the sender sent and
+// says nothing about confidential state.
+//
+// A request that is well formed but refused by the rules — an unaffordable
+// intent, a mandate breach, a batch the k-anonymity guard will not release — is
+// rejected privately. Vela publishes an app's error string in the signed
+// RequestCompleted event, and those reasons describe confidential state: a
+// refusal for exceeding a position cap tells everyone the strategy is near it.
+// So a rejection instead completes successfully, and the reason goes only to the
+// sender, inside a receipt.
+//
+// For that to hide anything, a rejection must be indistinguishable from an
+// acceptance in everything the chain records:
+//
+//   - status: both succeed;
+//   - fee: both report the same fuel, which is fixed per command;
+//   - events: both emit exactly one receipt, same subtype, same padded size;
+//   - state root: Vela bumps a nonce inside the hashed app data on every
+//     successful request, so the root moves even when Legate's state does not.
+type commandRequest struct {
+	st      *ApplicationInternalState
+	sender  types.Address
+	command string
+
+	// original is the state exactly as it arrived. A rejection returns this,
+	// never the handler's working copy: handlers may have mutated state before
+	// the rule that refused them ran, and now that a rejection is a successful
+	// request, anything it returned would be kept.
+	original string
+}
+
+// fuel is fixed per command and independent of outcome. The fee it determines is
+// published, so a rejection that cost less than an acceptance would announce
+// itself.
+func (r *commandRequest) fuel() *types.Uint256 {
+	if r.command == "close_batch" {
+		return fuelBatch
+	}
+	return fuelProcess
+}
+
+// accept commits the working state and answers with an accepted receipt,
+// followed by any further events the command produced.
+func (r *commandRequest) accept(
+	detail map[string]string,
+	extra []types.PlainEvent,
+	appEvents []types.AppEvent,
+	withdrawals []types.Withdrawal,
+) types.ProcessResult {
+	receipt, err := receiptEvent(r.sender, Receipt{
+		Type:    subtypeReceipt,
+		Command: r.command,
+		Status:  statusAccepted,
+		Detail:  detail,
+	})
+	if err != nil {
+		return malformed("%s: %v", r.command, err)
+	}
+	events := append([]types.PlainEvent{receipt}, extra...)
+	return finish(r.st, events, appEvents, withdrawals, r.fuel())
+}
+
+// reject discards every change and answers privately with the reason.
+func (r *commandRequest) reject(cause error) types.ProcessResult {
+	reason := fmt.Sprintf("%s: %v", r.command, cause)
+	if len(reason) > maxReasonLen {
+		reason = reason[:maxReasonLen]
+	}
+
+	receipt, err := receiptEvent(r.sender, Receipt{
+		Type:    subtypeReceipt,
+		Command: r.command,
+		Status:  statusRejected,
+		Reason:  reason,
+	})
+	if err != nil {
+		return malformed("%s: %v", r.command, err)
+	}
+
+	return types.ProcessResult{
+		State:  []byte(r.original),
+		Events: []types.PlainEvent{receipt},
+		Fuel:   r.fuel(),
+	}
+}
+
+// malformed fails a request publicly. Reserve it for reasons that reveal nothing
+// about confidential state.
+func malformed(format string, args ...interface{}) types.ProcessResult {
+	return types.ProcessResult{Error: fmt.Sprintf(format, args...)}
 }
 
 // TrustedRequest settles a batch once the trigger has executed its order.
@@ -323,66 +453,56 @@ func TrustedRequest(payload, stateJSON string) types.ProcessResult {
 	return types.ProcessResult{State: out, Events: events, Fuel: fuelSettle}
 }
 
-func handleRegisterStrategy(st *ApplicationInternalState, sender types.Address, cmd *RegisterStrategyCmd) types.ProcessResult {
+// Receipts deliberately never echo sender-chosen strings such as a strategy ID.
+// Those are unbounded, and echoing one could push a receipt past a padding
+// bucket. The sender already knows what they sent, and can match a receipt to
+// its request by the request ID the event is published under.
+
+func handleRegisterStrategy(r *commandRequest, cmd *RegisterStrategyCmd) types.ProcessResult {
 	if cmd == nil {
-		return types.ProcessResult{Error: "register_strategy: missing parameters"}
+		return malformed("register_strategy: missing parameters")
 	}
-	if _, err := st.RegisterStrategy(cmd.ID, sender, cmd.Mandate); err != nil {
-		return types.ProcessResult{Error: fmt.Sprintf("register_strategy: %v", err)}
+	if _, err := r.st.RegisterStrategy(cmd.ID, r.sender, cmd.Mandate); err != nil {
+		return r.reject(err)
 	}
-	return finish(st, nil, nil, nil, fuelProcess)
+	return r.accept(nil, nil, nil, nil)
 }
 
-func handleAllocate(st *ApplicationInternalState, sender types.Address, cmd *AllocateCmd) types.ProcessResult {
+func handleAllocate(r *commandRequest, cmd *AllocateCmd) types.ProcessResult {
 	if cmd == nil || cmd.Amount == nil {
-		return types.ProcessResult{Error: "allocate: missing parameters"}
+		return malformed("allocate: missing parameters")
 	}
 
-	issued, err := st.Allocate(sender, cmd.StrategyID, *cmd.Amount, cmd.Prices)
+	issued, err := r.st.Allocate(r.sender, cmd.StrategyID, *cmd.Amount, cmd.Prices)
 	if err != nil {
-		return types.ProcessResult{Error: fmt.Sprintf("allocate: %v", err)}
+		// A deposit made with this request stays credited as idle balance: the
+		// deposit export already ran, and refunding it on chain would announce the
+		// rejection as plainly as an error would.
+		return r.reject(err)
 	}
-
-	event, err := userEvent(sender, subtypeAllocated, map[string]interface{}{
-		"type":       subtypeAllocated,
-		"strategyId": cmd.StrategyID,
-		"shares":     issued.ToHex(),
-	})
-	if err != nil {
-		return types.ProcessResult{Error: err.Error()}
-	}
-	return finish(st, []types.PlainEvent{event}, nil, nil, fuelProcess)
+	return r.accept(map[string]string{"shares": issued.ToHex()}, nil, nil, nil)
 }
 
-func handleRedeem(st *ApplicationInternalState, sender types.Address, cmd *RedeemCmd) types.ProcessResult {
+func handleRedeem(r *commandRequest, cmd *RedeemCmd) types.ProcessResult {
 	if cmd == nil || cmd.Shares == nil {
-		return types.ProcessResult{Error: "redeem: missing parameters"}
+		return malformed("redeem: missing parameters")
 	}
 
-	value, err := st.Redeem(sender, cmd.StrategyID, *cmd.Shares, cmd.Prices)
+	value, err := r.st.Redeem(r.sender, cmd.StrategyID, *cmd.Shares, cmd.Prices)
 	if err != nil {
-		return types.ProcessResult{Error: fmt.Sprintf("redeem: %v", err)}
+		return r.reject(err)
 	}
-
-	event, err := userEvent(sender, subtypeRedeemed, map[string]interface{}{
-		"type":       subtypeRedeemed,
-		"strategyId": cmd.StrategyID,
-		"value":      value.ToHex(),
-	})
-	if err != nil {
-		return types.ProcessResult{Error: err.Error()}
-	}
-	return finish(st, []types.PlainEvent{event}, nil, nil, fuelProcess)
+	return r.accept(map[string]string{"value": value.ToHex()}, nil, nil, nil)
 }
 
-func handleSubmitIntent(st *ApplicationInternalState, sender types.Address, cmd *IntentCmd) types.ProcessResult {
+func handleSubmitIntent(r *commandRequest, cmd *IntentCmd) types.ProcessResult {
 	if cmd == nil || cmd.Amount == nil {
-		return types.ProcessResult{Error: "submit_intent: missing parameters"}
+		return malformed("submit_intent: missing parameters")
 	}
 
 	base, err := types.HexToAddress(cmd.Base)
 	if err != nil {
-		return types.ProcessResult{Error: fmt.Sprintf("submit_intent: bad base: %v", err)}
+		return malformed("submit_intent: bad base: %v", err)
 	}
 
 	limit := types.Uint256{}
@@ -390,46 +510,44 @@ func handleSubmitIntent(st *ApplicationInternalState, sender types.Address, cmd 
 		limit = *cmd.LimitPrice
 	}
 
-	accepted, err := st.SubmitIntent(sender, Intent{
+	accepted, err := r.st.SubmitIntent(r.sender, Intent{
 		StrategyID: cmd.StrategyID,
 		Base:       base,
-		Quote:      st.QuoteToken,
+		Quote:      r.st.QuoteToken,
 		Side:       cmd.Side,
 		Amount:     cmd.Amount,
 		LimitPrice: &limit,
 	})
 	if err != nil {
-		return types.ProcessResult{Error: fmt.Sprintf("submit_intent: %v", err)}
+		return r.reject(err)
 	}
-
-	// The acknowledgement reveals only that this strategist's intent was
-	// accepted, and goes only to them.
-	event, err := userEvent(sender, subtypeIntent, map[string]interface{}{
-		"type":     subtypeIntent,
-		"intentId": accepted.ID,
-	})
-	if err != nil {
-		return types.ProcessResult{Error: err.Error()}
-	}
-	return finish(st, []types.PlainEvent{event}, nil, nil, fuelProcess)
+	return r.accept(map[string]string{"intentId": accepted.ID}, nil, nil, nil)
 }
 
 // handleCloseBatch nets the pending intents and, if anything is left over,
 // sends exactly one order to market.
-func handleCloseBatch(st *ApplicationInternalState, sender types.Address, cmd *CloseBatchCmd) types.ProcessResult {
+//
+// Every refusal here is private. That includes the k-anonymity guard declining to
+// release a batch: publishing that reason would tell everyone fewer than k
+// strategies were active. From outside, a refused close is a successful request
+// that published no order — though, unlike a batch that fully internalised, it
+// carries no fill events, so the fact that nothing settled remains visible.
+func handleCloseBatch(r *commandRequest, cmd *CloseBatchCmd) types.ProcessResult {
+	st := r.st
+
 	if cmd == nil || cmd.RefPrice == nil {
-		return types.ProcessResult{Error: "close_batch: missing parameters"}
+		return malformed("close_batch: missing parameters")
 	}
-	if st.Operator != "" && st.Operator != sender.Hex() {
-		return types.ProcessResult{Error: fmt.Sprintf("close_batch: %v", ErrNotOperator)}
+	if st.Operator != "" && st.Operator != r.sender.Hex() {
+		return r.reject(ErrNotOperator)
 	}
 	if len(st.Pending) == 0 {
-		return types.ProcessResult{Error: fmt.Sprintf("close_batch: %v", ErrNoPendingIntents)}
+		return r.reject(ErrNoPendingIntents)
 	}
 
 	plan, err := NetBatch(st.Pending, *cmd.RefPrice, st.Config)
 	if err != nil {
-		return types.ProcessResult{Error: fmt.Sprintf("close_batch: %v", err)}
+		return r.reject(err)
 	}
 
 	st.BatchNonce++
@@ -442,33 +560,36 @@ func handleCloseBatch(st *ApplicationInternalState, sender types.Address, cmd *C
 	st.Pending = nil
 
 	// A fully internalised batch never reaches the market, so it settles
-	// immediately and nothing at all is published.
+	// immediately and no order is published.
 	if plan.FullyInternalised {
 		settlement, err := SettleBatch(plan, key, MarketFill{Success: true})
 		if err != nil {
-			return types.ProcessResult{Error: fmt.Sprintf("close_batch: %v", err)}
+			return r.reject(err)
 		}
 		if err := st.ApplySettlement(plan, settlement); err != nil {
-			return types.ProcessResult{Error: fmt.Sprintf("close_batch: %v", err)}
+			return r.reject(err)
 		}
 		events, err := fillEvents(st, settlement)
 		if err != nil {
-			return types.ProcessResult{Error: err.Error()}
+			return r.reject(err)
 		}
-		return finish(st, events, nil, nil, fuelBatch)
+		return r.accept(map[string]string{"outcome": "internalised"}, events, nil, nil)
 	}
 
+	// Deployment misconfiguration, not confidential state, so it fails publicly.
 	if st.TriggerAddress == "" {
-		return types.ProcessResult{Error: "close_batch: no trigger contract configured"}
+		return malformed("close_batch: no trigger contract configured")
 	}
 	triggerAddr, err := types.HexToAddress(st.TriggerAddress)
 	if err != nil {
-		return types.ProcessResult{Error: fmt.Sprintf("close_batch: bad trigger address: %v", err)}
+		return malformed("close_batch: bad trigger address: %v", err)
 	}
 
+	// This check runs after the nonce was bumped and the pending queue cleared.
+	// Rejecting returns the state as it arrived, so those intents are not lost.
 	quoteLimit, err := QuoteLimitFor(plan, cmd.SlippageBps)
 	if err != nil {
-		return types.ProcessResult{Error: fmt.Sprintf("close_batch: %v", err)}
+		return r.reject(err)
 	}
 
 	st.Open[key] = &OpenBatch{ID: key, Plan: *plan}
@@ -505,7 +626,7 @@ func handleCloseBatch(st *ApplicationInternalState, sender types.Address, cmd *C
 		Data:         EncodeOrder(order),
 	}}
 
-	return finish(st, nil, appEvents, withdrawals, fuelBatch)
+	return r.accept(map[string]string{"outcome": "sent_to_market"}, nil, appEvents, withdrawals)
 }
 
 // handleDeanonymization produces the compliance report.
@@ -601,7 +722,9 @@ func fillEvents(st *ApplicationInternalState, s *Settlement) ([]types.PlainEvent
 	return events, nil
 }
 
-func userEvent(to types.Address, subtype string, body map[string]interface{}) (types.PlainEvent, error) {
+// userEvent builds a private event, padded so its encrypted length reveals
+// nothing about its contents.
+func userEvent(to types.Address, subtype string, body interface{}) (types.PlainEvent, error) {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return types.PlainEvent{}, fmt.Errorf("event: %v", err)
@@ -609,8 +732,32 @@ func userEvent(to types.Address, subtype string, body map[string]interface{}) (t
 	return types.PlainEvent{
 		UserID:       to,
 		EventSubType: subtypeToBytes32(subtype),
-		Data:         data,
+		Data:         padToBucket(data),
 	}, nil
+}
+
+func receiptEvent(to types.Address, r Receipt) (types.PlainEvent, error) {
+	return userEvent(to, subtypeReceipt, r)
+}
+
+// padToBucket pads JSON with trailing spaces to the next multiple of
+// EventPadSize. JSON permits trailing whitespace, so readers parse it unchanged.
+//
+// Receipts are sized to always fit a single bucket. Fill events can outgrow one
+// when a strategy has many fills in a batch, and are allowed to take more buckets
+// rather than fail: refusing would strand a settled batch. That reveals only a
+// coarse fill count, and only to someone who already knows whose event it is.
+func padToBucket(body []byte) []byte {
+	size := EventPadSize
+	for size < len(body) {
+		size += EventPadSize
+	}
+	out := make([]byte, size)
+	copy(out, body)
+	for i := len(body); i < size; i++ {
+		out[i] = ' '
+	}
+	return out
 }
 
 // finish serialises state into a ProcessResult.

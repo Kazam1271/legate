@@ -110,8 +110,15 @@ be disclosed to strategists and depositors, not solved away.
 
 Encrypting a payload hides what it says. Everything *around* it — its length, who
 sent it, when, and whether it succeeded — stays public. Running Legate on a real
-Vela stack, and then tracing exactly what Vela's executor publishes, surfaced three
-such leaks. None of them is visible to a unit test, which only ever sees plaintext.
+Vela stack, and then tracing exactly what Vela's executor publishes, surfaced the
+leaks below. None of them is visible to a unit test, which only ever sees plaintext.
+
+| Leak | Status |
+|---|---|
+| Payload length | Fixed — padding, enforced by the enclave |
+| Error messages and failure status | Fixed — private rejections |
+| Sender address and timing | Open — inherent to Vela's request model |
+| Number of fill events per batch | Open |
 
 **Payload length — found in the live run, fixed.** AES-GCM output is the plaintext
 plus a fixed 28 bytes, so ciphertext length is plaintext length. In the first live
@@ -136,20 +143,56 @@ else's crowd. The live run now asserts that every encrypted request — buys, se
 registrations, allocations, batch closes — is the same size on chain, and that an
 unpadded intent is refused.
 
-**Error messages — found by reading the executor, open.** When the app returns an
+**Error messages — found by reading the executor, fixed.** When the app returns an
 error, Vela's executor publishes it, truncated to 100 characters, in the signed
 `RequestCompleted` event. Legate's errors are specific, and some of them are about
-confidential state: `intent would exceed the mandate's maximum position` tells
-every observer that strategy is near its cap. Whether a request failed at all is
-public too, and so is a refused batch close — which reveals when too few strategies
+confidential state: `intent would exceed the mandate's maximum position` told every
+observer that strategy was near its cap. Whether a request failed at all was public
+too, and so was a refused batch close — which revealed when too few strategies had
 submitted to satisfy the k-anonymity guard.
 
-Proposed fix: treat business-rule rejections as successful requests that leave
-state unchanged and deliver the reason to the sender in an encrypted event, so an
-accepted intent and a rejected one look identical from outside. Malformed requests
-— bad padding, unparseable JSON — stay as public errors, since they reveal nothing
-about strategy state. This changes request semantics, including fees, so it is a
-deliberate decision rather than a quiet patch.
+Fix, implemented: failures now come in two kinds, published differently.
+
+- **Malformed requests fail publicly** — bad padding, unparseable JSON, a missing
+  parameter. The reason depends only on what the sender sent.
+- **Rule-based refusals are private.** An unaffordable intent, a mandate breach, a
+  batch the k-anonymity guard will not release: each completes as a *successful*
+  request that leaves state unchanged, and the reason goes only to the sender in an
+  encrypted receipt.
+
+A rejection only hides anything if it matches an acceptance in everything the chain
+records, so all of these are made equal by construction:
+
+| Observable | How it is equalised |
+|---|---|
+| Status and error message | Both succeed with no error |
+| Fee | Fuel is fixed per command, independent of outcome |
+| Events | Exactly one receipt, one subtype for every command, padded to 1024 bytes |
+| State root | Vela bumps a nonce inside the hashed app data on every success, so the root moves even when Legate's state does not |
+
+The live run submits an intent the rules must refuse and asserts, on the real
+chain, that its status, fee, and event subtype and size are identical to an
+accepted intent's — while the sender alone decrypts the reason.
+
+A subtle trap had to be avoided. Handlers can mutate state before the rule that
+refuses them runs: closing a batch clears the pending queue before checking for a
+price bound. Under the old model that was harmless, because Vela discards state on
+error. Now that a rejection is a successful request, returning the handler's working
+copy would have silently dropped every queued intent. A rejection therefore returns
+the state exactly as it arrived. A test covers this, and was confirmed to fail when
+the bug is reintroduced.
+
+What a private rejection still reveals, or costs:
+
+- **A refused batch close is not fully hidden.** It publishes no order, like a batch
+  that internalised completely, but unlike one it carries no fill events. So *that*
+  nothing settled is visible; *why* is not.
+- **A refusal is charged the full fee**, as an acceptance is. A cheaper refusal would
+  announce itself.
+- **A deposit made alongside a refused allocation stays in the vault** as idle
+  balance rather than being refunded, since an on-chain refund would announce the
+  refusal. This makes a depositor withdrawal command necessary; it does not exist
+  yet.
 
 **Sender address and timing — inherent to the request model, open.** Every request
 records its sender's address and block. Nobody learns which strategy a wallet runs
@@ -158,6 +201,13 @@ pattern is visible: when it submits, and how often. Possible mitigations, none y
 implemented: letting a manager authorise session keys so submissions do not all
 come from one address, and submitting cover intents at a steady cadence so real
 activity does not stand out.
+
+**Fill event count — open.** Settling a batch sends one encrypted fill event to
+each participating strategy's manager. Recipients are hidden, but the number of
+events is not, so an observer learns how many strategies took part in each batch.
+The k-anonymity guard ensures that number is at least _k_; knowing it exactly still
+helps attribution when it is small. A mitigation would be to send every registered
+strategy an event per batch, empty for those that did not trade.
 
 ### 4.5 Enclave compromise scenarios
 - **Side-channel attacks on Nitro** are a known (if difficult) class of attack

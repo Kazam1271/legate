@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -436,12 +437,12 @@ func TestOnlyTheOperatorMayCloseABatch(t *testing.T) {
 	h.process(managerA, intentCmd("alpha", SideBuy, 100, price(t, 3_100)))
 	h.process(managerB, intentCmd("beta", SideSell, 60, types.Uint256{}))
 
-	err := h.processExpectingError(managerA, PayloadInstructions{
+	receipt := h.processExpectingRejection(managerA, PayloadInstructions{
 		Command:    "close_batch",
 		CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000))},
 	})
-	if !strings.Contains(err, "only the operator") {
-		t.Fatalf("unexpected error: %s", err)
+	if !strings.Contains(receipt.Reason, "only the operator") {
+		t.Fatalf("unexpected reason: %s", receipt.Reason)
 	}
 }
 
@@ -467,9 +468,261 @@ func TestFundsInAnOpenBatchCannotBeSpentAgain(t *testing.T) {
 
 	// The batch is in flight. Alpha's money is committed even though its
 	// balance has not been debited yet.
-	errMsg := h.processExpectingError(managerA, intentCmd("alpha", SideBuy, 100, price(t, 3_100)))
-	if !strings.Contains(errMsg, "insufficient balance") {
-		t.Fatalf("unexpected error: %s", errMsg)
+	receipt := h.processExpectingRejection(managerA, intentCmd("alpha", SideBuy, 100, price(t, 3_100)))
+	if !strings.Contains(receipt.Reason, "insufficient balance") {
+		t.Fatalf("unexpected reason: %s", receipt.Reason)
+	}
+}
+
+// processExpectingRejection runs a command the rules should refuse and checks the
+// refusal is private: the request succeeds, the state comes back untouched, and
+// the only trace is one rejected receipt addressed to the sender.
+func (h *harness) processExpectingRejection(sender types.Address, instr PayloadInstructions) Receipt {
+	h.t.Helper()
+	before := h.state
+
+	res := ProcessRequest(&sender, RequestTypeProcess, paddedJSON(h.t, instr), h.state)
+	if res.Error != "" {
+		h.t.Fatalf("process %q: a rule-based refusal must not be a public error, got %q", instr.Command, res.Error)
+	}
+	if string(res.State) != before {
+		h.t.Fatalf("process %q: a rejection must return the state exactly as it arrived", instr.Command)
+	}
+	if len(res.AppEvents) != 0 || len(res.Withdrawals) != 0 {
+		h.t.Fatalf("process %q: a rejection must publish nothing", instr.Command)
+	}
+
+	receipt := onlyReceipt(h.t, res, sender)
+	if receipt.Status != statusRejected {
+		h.t.Fatalf("process %q: receipt status = %q, want rejected", instr.Command, receipt.Status)
+	}
+	return receipt
+}
+
+// onlyReceipt asserts a result carries exactly one well-formed receipt for the
+// sender, and returns it.
+func onlyReceipt(t *testing.T, res types.ProcessResult, sender types.Address) Receipt {
+	t.Helper()
+	if len(res.Events) == 0 {
+		t.Fatal("expected a receipt event")
+	}
+	ev := res.Events[0]
+	if ev.EventSubType != subtypeToBytes32(subtypeReceipt) {
+		t.Fatalf("first event subtype = %q, want receipt", strings.TrimRight(string(ev.EventSubType[:]), "\x00"))
+	}
+	if ev.UserID != sender {
+		t.Fatalf("receipt addressed to %s, want the sender %s", ev.UserID.Hex(), sender.Hex())
+	}
+	if len(ev.Data) != EventPadSize {
+		t.Fatalf("receipt body is %d bytes, want exactly %d", len(ev.Data), EventPadSize)
+	}
+	var receipt Receipt
+	if err := json.Unmarshal(ev.Data, &receipt); err != nil {
+		t.Fatalf("receipt is not valid JSON: %v", err)
+	}
+	return receipt
+}
+
+// The whole point of private rejection. From the chain's point of view an
+// accepted intent and a rejected one must be the same: both succeed, charge the
+// same fuel, and emit one receipt of the same subtype and size. Anything that
+// differs would let an observer tell them apart.
+func TestARejectedIntentIsIndistinguishableFromAnAcceptedOne(t *testing.T) {
+	h := newHarness(t)
+	h.process(managerA, registerCmd("alpha"))
+	h.fund("alpha", tokenUSDC, 1_000_000)
+
+	accepted := h.process(managerA, intentCmd("alpha", SideBuy, 10, price(t, 3_100)))
+
+	// Far beyond the mandate's maximum order size.
+	sender := managerA
+	rejected := ProcessRequest(&sender, RequestTypeProcess,
+		paddedJSON(t, intentCmd("alpha", SideBuy, 1_000_000, price(t, 3_100))), h.state)
+
+	if accepted.Error != "" || rejected.Error != "" {
+		t.Fatalf("both must succeed publicly: accepted=%q rejected=%q", accepted.Error, rejected.Error)
+	}
+	if !accepted.Fuel.Eq(*rejected.Fuel) {
+		t.Fatalf("fuel differs (%s vs %s), so the published fee would reveal the rejection",
+			accepted.Fuel.String(), rejected.Fuel.String())
+	}
+	if len(accepted.Events) != len(rejected.Events) {
+		t.Fatalf("event count differs: %d vs %d", len(accepted.Events), len(rejected.Events))
+	}
+	for i := range accepted.Events {
+		a, r := accepted.Events[i], rejected.Events[i]
+		if a.EventSubType != r.EventSubType {
+			t.Fatalf("event %d subtype differs", i)
+		}
+		if len(a.Data) != len(r.Data) {
+			t.Fatalf("event %d size differs (%d vs %d), so its ciphertext would reveal the outcome",
+				i, len(a.Data), len(r.Data))
+		}
+	}
+	if len(accepted.AppEvents) != len(rejected.AppEvents) || len(accepted.Withdrawals) != len(rejected.Withdrawals) {
+		t.Fatal("public side effects differ")
+	}
+
+	// And privately, each sender learns what actually happened.
+	if got := onlyReceipt(t, accepted, managerA); got.Status != statusAccepted || got.Detail["intentId"] == "" {
+		t.Fatalf("accepted receipt = %+v", got)
+	}
+	if got := onlyReceipt(t, rejected, managerA); got.Status != statusRejected ||
+		!strings.Contains(got.Reason, "maximum order size") {
+		t.Fatalf("rejected receipt = %+v", got)
+	}
+}
+
+// Every user command answers with the same receipt shape, so the receipt does
+// not reveal which command was sent either.
+func TestEveryUserCommandAnswersWithTheSameReceiptShape(t *testing.T) {
+	h := newHarness(t)
+
+	results := map[string]types.ProcessResult{
+		"register_strategy": h.process(managerA, registerCmd("alpha")),
+	}
+
+	h.deposit(depositor, tokenUSDC, 5_000)
+	results["allocate"] = h.process(depositor, PayloadInstructions{
+		Command:  "allocate",
+		Allocate: &AllocateCmd{StrategyID: "alpha", Amount: types.NewUint256(5_000), Prices: pricesAt(t, 3_000)},
+	})
+	results["redeem"] = h.process(depositor, PayloadInstructions{
+		Command: "redeem",
+		Redeem:  &RedeemCmd{StrategyID: "alpha", Shares: types.NewUint256(1_000), Prices: pricesAt(t, 3_000)},
+	})
+	results["submit_intent"] = h.process(managerA, intentCmd("alpha", SideBuy, 1, price(t, 3_100)))
+
+	for name, res := range results {
+		sender := managerA
+		if name == "allocate" || name == "redeem" {
+			sender = depositor
+		}
+		if len(res.Events) != 1 {
+			t.Fatalf("%s emitted %d events, want exactly one receipt", name, len(res.Events))
+		}
+		if !res.Fuel.Eq(*fuelProcess) {
+			t.Fatalf("%s charged fuel %s, want the shared %s", name, res.Fuel.String(), fuelProcess.String())
+		}
+		receipt := onlyReceipt(t, res, sender)
+		if receipt.Command != name || receipt.Status != statusAccepted {
+			t.Fatalf("%s receipt = %+v", name, receipt)
+		}
+	}
+}
+
+// Handlers can mutate state before the rule that refuses them runs. close_batch
+// clears the pending queue and bumps the batch nonce before checking there is a
+// price bound. Now that a rejection is a successful request, returning that
+// working copy would silently drop every pending intent.
+func TestRejectionNeverPersistsPartialChanges(t *testing.T) {
+	h := newHarness(t)
+	h.process(managerA, registerCmd("alpha"))
+	h.process(managerB, registerCmd("beta"))
+	h.fund("alpha", tokenUSDC, 1_000_000)
+	h.fund("beta", tokenWETH, 100)
+
+	// The residual is a sell of 60, and every sell is unconditional, so with no
+	// slippage tolerance nothing bounds the price. A buy residual would always
+	// have a bound, since buys must carry limits — which is why this reaches the
+	// check that runs after the queue has already been cleared.
+	h.process(managerA, intentCmd("alpha", SideBuy, 40, price(t, 3_100)))
+	h.process(managerB, intentCmd("beta", SideSell, 100, types.Uint256{}))
+
+	receipt := h.processExpectingRejection(operator, PayloadInstructions{
+		Command:    "close_batch",
+		CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000)), SlippageBps: 0},
+	})
+	if !strings.Contains(receipt.Reason, "no price bound") {
+		t.Fatalf("unexpected reason: %s", receipt.Reason)
+	}
+
+	st := h.load()
+	if len(st.Pending) != 2 {
+		t.Fatalf("pending intents = %d after a rejected close, want both still queued", len(st.Pending))
+	}
+	if st.BatchNonce != 0 {
+		t.Fatalf("batch nonce = %d after a rejected close, want it untouched", st.BatchNonce)
+	}
+}
+
+// Publishing why a batch was refused would tell everyone fewer than k strategies
+// were active.
+func TestTheKAnonymityRefusalIsPrivate(t *testing.T) {
+	h := newHarness(t)
+	h.process(managerA, registerCmd("alpha"))
+	h.fund("alpha", tokenUSDC, 1_000_000)
+
+	// A single contributor, below the harness's minimum of two.
+	h.process(managerA, intentCmd("alpha", SideBuy, 100, price(t, 3_100)))
+
+	receipt := h.processExpectingRejection(operator, PayloadInstructions{
+		Command:    "close_batch",
+		CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000))},
+	})
+	if receipt.Reason == "" {
+		t.Fatal("the operator should still learn privately why the batch did not close")
+	}
+}
+
+// A deposit that arrives with a rejected allocation stays credited as idle
+// balance. Refunding it on chain would announce the rejection.
+func TestDepositSurvivesARejectedAllocation(t *testing.T) {
+	h := newHarness(t)
+	h.process(managerA, registerCmd("alpha"))
+
+	// The deposit export runs first, exactly as Vela orders it.
+	h.deposit(depositor, tokenUSDC, 500)
+
+	receipt := h.processExpectingRejection(depositor, PayloadInstructions{
+		Command:  "allocate",
+		Allocate: &AllocateCmd{StrategyID: "no-such-strategy", Amount: types.NewUint256(500), Prices: PriceSet{}},
+	})
+	if !strings.Contains(receipt.Reason, "unknown strategy") {
+		t.Fatalf("unexpected reason: %s", receipt.Reason)
+	}
+
+	if idle := h.load().Account(depositor).UnallocatedBalance(tokenUSDC); !idle.Eq(u64(500)) {
+		t.Fatalf("idle balance = %s after the rejection, want the 500 deposit kept", idle.String())
+	}
+}
+
+// Malformed requests say nothing about confidential state, so they still fail
+// in public. Only rule-based refusals are made private.
+func TestMalformedRequestsStillFailPublicly(t *testing.T) {
+	h := newHarness(t)
+	sender := managerA
+
+	cases := map[string]string{
+		"unknown command":    paddedJSON(t, PayloadInstructions{Command: "drain_everything"}),
+		"missing parameters": paddedJSON(t, PayloadInstructions{Command: "submit_intent"}),
+		"unpadded":           mustJSON(t, registerCmd("alpha")),
+	}
+	for name, payload := range cases {
+		if res := ProcessRequest(&sender, RequestTypeProcess, payload, h.state); res.Error == "" {
+			t.Fatalf("%s: expected a public error", name)
+		}
+	}
+}
+
+// A rejection with a long reason must not spill into a second padding bucket, or
+// that rejection would be larger than any acceptance.
+func TestEveryRejectionReceiptFitsOneBucket(t *testing.T) {
+	causes := []error{
+		ErrBuyNeedsLimitPrice, ErrStrategyWipedOut, ErrZeroAmount, ErrWrongQuoteToken,
+		ErrUnknownStrategy, ErrStrategyExists, ErrNotManager, ErrStrategyHalted,
+		ErrTokenNotAllowed, ErrOrderTooLarge, ErrPositionTooLarge, ErrInsufficientFunds,
+		ErrNoSuchAccount, ErrMissingPrice, ErrNothingToValue, ErrNotOperator,
+		ErrNoPendingIntents, ErrNoPriceBound, ErrDuplicatePriceKey,
+		errors.New(strings.Repeat("an absurdly long reason ", 200)),
+	}
+	req := &commandRequest{st: NewState(1, "", tokenUSDC, NettingConfig{}), sender: managerA, command: "submit_intent", original: "{}"}
+
+	for _, cause := range causes {
+		res := req.reject(cause)
+		if len(res.Events) != 1 || len(res.Events[0].Data) != EventPadSize {
+			t.Fatalf("receipt for %q is %d bytes, want %d", cause, len(res.Events[0].Data), EventPadSize)
+		}
 	}
 }
 

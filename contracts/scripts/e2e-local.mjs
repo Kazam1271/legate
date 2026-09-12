@@ -228,9 +228,43 @@ async function submitProcess(who, appId, instructions, { token = ETH_TOKEN, amou
   submitted.add(receipt.requestId);
 
   const block = receipt.transactionReceipt.blockNumber;
-  await waitForCompletion(who.client, receipt.requestId, block, `${who.name}: ${instructions.command}`);
+  const result = await waitForCompletion(who.client, receipt.requestId, block, `${who.name}: ${instructions.command}`);
 
-  return { requestId: receipt.requestId, block, plaintextBytes: plaintext.length, cipherBytes: ciphertext.length };
+  return {
+    requestId: receipt.requestId,
+    block,
+    result,
+    plaintextBytes: plaintext.length,
+    cipherBytes: ciphertext.length,
+  };
+}
+
+// The public shape of a request's encrypted events: what an observer can see
+// without any key.
+async function publicUserEvents(appId, requestId, fromBlock) {
+  const endpoint = admin.client.processorEndpoint;
+  const latest = await provider.getBlockNumber();
+  const events = await endpoint.queryFilter(endpoint.filters.UserEvent(appId, requestId), fromBlock, latest);
+  return events.map((e) => ({
+    subtype: ethers.decodeBytes32String(e.args.eventSubType),
+    bytes: ethers.dataLength(e.args.encryptedData),
+  }));
+}
+
+// The receipt a sender decrypts for one of their requests.
+async function decryptReceipt(who, appId, requestId, fromBlock) {
+  const latest = await provider.getBlockNumber();
+  const [bytes] = await who.client.getCurrentUserEvents(
+    latest,
+    fromBlock,
+    appId,
+    requestId,
+    ethers.encodeBytes32String('receipt'),
+    () => true,
+    true,
+  );
+  if (!bytes) throw new Error(`${who.name} could not decrypt a receipt for ${requestId}`);
+  return JSON.parse(bytesToString(bytes));
 }
 
 // Finds the TRUSTPROCESS request the trigger enqueued for a batch and waits for
@@ -296,6 +330,7 @@ function totalBase(fillEvents, side) {
 async function runBatch(label, appId, trigger, weth, intents) {
   const triggerAddress = await trigger.getAddress();
   step(`${label}: strategies submit encrypted intents`);
+  const submissions = [];
   for (const { who, strategyId, side, amount, limit } of intents) {
     const r = await submitProcess(who, appId, {
       command: 'submit_intent',
@@ -311,6 +346,7 @@ async function runBatch(label, appId, trigger, weth, intents) {
       `${who.name}: ${side} ${fmt(amount)} WETH on ${strategyId} ` +
         dim(`→ on chain only as ${r.cipherBytes} bytes of ciphertext`),
     );
+    submissions.push({ who, ...r });
   }
 
   step(`${label}: operator closes the batch`);
@@ -343,7 +379,7 @@ async function runBatch(label, appId, trigger, weth, intents) {
   const settlementId = await waitForSettlement(appId, triggerAddress, close.block);
   info(`trusted request ${dim(settlementId)} completed`);
 
-  return { order, settlementId, closeBlock: close.block };
+  return { order, settlementId, closeBlock: close.block, submissions };
 }
 
 async function main() {
@@ -515,7 +551,51 @@ async function main() {
   check(totalBase(alphaFills1, 'buy') === 10n * E18, 'alpha privately received 10 WETH');
   check(totalBase(betaFills1, 'buy') === 6n * E18, 'beta privately received 6 WETH');
 
-  // Batch 2: opposing flow nets inside the enclave.
+  step('A rule-breaking intent is refused privately');
+  {
+    // Beta holds 6 WETH and tries to sell 100. The enclave must refuse, but Vela
+    // publishes error strings, so the refusal has to look like a success.
+    const accepted = batch1.submissions.find((s) => s.who === alphaManager);
+    const rejected = await submitProcess(betaManager, appId, {
+      command: 'submit_intent',
+      intent: { strategyId: 'beta', base: WETH, side: SIDE.sell, amount: hex(100n * E18), limitPrice: hex(0n) },
+    });
+
+    const acceptedEvents = await publicUserEvents(appId, accepted.requestId, accepted.block);
+    const rejectedEvents = await publicUserEvents(appId, rejected.requestId, rejected.block);
+    const shape = (evs) => evs.map((e) => `${e.subtype}:${e.bytes}`).join(',');
+
+    info(bold('public — the accepted and the rejected intent:'));
+    info(`  accepted: status ${accepted.result.status}, fee ${accepted.result.applicationFees} wei, events ${shape(acceptedEvents)}`);
+    info(`  rejected: status ${rejected.result.status}, fee ${rejected.result.applicationFees} wei, events ${shape(rejectedEvents)}`);
+
+    check(
+      rejected.result.status === 0n && rejected.result.errorMessage === undefined,
+      'the refusal completed as a success, with no public error message',
+    );
+    check(
+      rejected.result.applicationFees === accepted.result.applicationFees,
+      'it was charged exactly the fee an accepted intent pays',
+    );
+    check(
+      shape(rejectedEvents) === shape(acceptedEvents),
+      'its events have the same subtype and encrypted size as an accepted intent’s',
+    );
+
+    const betaReceipt = await decryptReceipt(betaManager, appId, rejected.requestId, rejected.block);
+    const alphaReceipt = await decryptReceipt(alphaManager, appId, accepted.requestId, accepted.block);
+    info(bold('private — decrypted only by each sender:'));
+    info(`  alpha: ${alphaReceipt.status}`);
+    info(`  beta:  ${betaReceipt.status} — "${betaReceipt.reason}"`);
+    check(alphaReceipt.status === 'accepted', 'alpha privately learns its intent was accepted');
+    check(
+      betaReceipt.status === 'rejected' && /insufficient balance/.test(betaReceipt.reason),
+      'beta privately learns why its intent was refused',
+    );
+  }
+
+  // Batch 2: opposing flow nets inside the enclave. The refused intent above must
+  // not have entered the queue, which the 4 WETH assertion below also proves.
   const batch2 = await runBatch('Batch 2', appId, trigger, WETH, [
     { who: alphaManager, strategyId: 'alpha', side: 'buy', amount: 10n * E18, limit: LIMIT_PRICE },
     { who: betaManager, strategyId: 'beta', side: 'sell', amount: 6n * E18, limit: 0n },

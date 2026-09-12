@@ -38,7 +38,7 @@ exporting `deploy`, `load_module`, `deposit`, `process_request` and
 `trusted_request`. Toolchain setup is in [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md);
 `./build.sh doctor` checks it.
 
-Both sides run their own suites — 113 Go tests, 15 Solidity — and a shared
+Both sides run their own suites — 120 Go tests, 15 Solidity — and a shared
 fixture holds them to the same wire format (see below).
 
 What is not yet done: the strategist SDK, a public testnet deployment, and real
@@ -73,14 +73,22 @@ private — decrypted only by each manager:
   alpha bought 10.0 WETH
   beta sold    6.0 WETH
 ✔ both sides settled at one clearing price (3000.0)
-✔ all 10 encrypted requests were 1052 bytes on chain, whatever they said
+✔ all 11 encrypted requests were 1052 bytes on chain, whatever they said
 ```
 
-That last line matters as much as the netting. Ciphertext length reveals plaintext
-length, so every command is padded to a fixed size and the enclave refuses any
-other — the run also submits one unpadded intent and checks it is rejected. See
-[docs/THREAT_MODEL.md §4.4](docs/THREAT_MODEL.md) for what request metadata still
-reveals.
+That last line matters as much as the netting. Encryption hides what a request
+says, not the metadata around it, so the run also checks the metadata:
+
+- **Length.** Ciphertext length reveals plaintext length, so every command is
+  padded to a fixed size and the enclave refuses any other. The run submits one
+  unpadded intent and checks it is refused.
+- **Refusals.** Vela publishes an app's error strings, and a refusal reason can
+  describe confidential state. So an intent the rules refuse completes as a
+  success, and only its sender decrypts why. The run submits one and checks its
+  status, fee, and event subtype and size match an accepted intent's exactly.
+
+See [docs/THREAT_MODEL.md §4.4](docs/THREAT_MODEL.md) for what request metadata
+still reveals.
 
 Each run deploys fresh tokens, a fresh trigger and a fresh app, so it can be
 repeated against the same stack without resetting it.
