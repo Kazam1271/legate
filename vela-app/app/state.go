@@ -1,7 +1,9 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 
 	"github.com/HorizenOfficial/vela-common-go/wasm/types"
@@ -277,6 +279,43 @@ func sortedBalanceKeys(m map[string]*types.Uint256) []string {
 // asset. The enclave cannot fetch prices itself, so they are supplied with the
 // request that needs them.
 type PriceSet map[string]types.Uint256
+
+// ErrDuplicatePriceKey is returned when two price keys name the same token.
+var ErrDuplicatePriceKey = errors.New("price set names the same token twice")
+
+// UnmarshalJSON canonicalises token keys to the form Address.Hex produces.
+//
+// Balances are keyed by that canonical lowercase form, but a client is free to
+// send any casing — ethers, for one, emits checksummed addresses. Without this, a
+// correctly priced holding would fail its lookup and valuation would report a
+// missing price.
+//
+// Keys that differ only in case are rejected rather than merged. Merging would
+// keep whichever the map iteration reached last, and Go randomises that order, so
+// the surviving price — and with it NAV and share issuance — would vary between
+// runs of the same request. That would change the state root.
+func (p *PriceSet) UnmarshalJSON(data []byte) error {
+	var raw map[string]types.Uint256
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	out := make(PriceSet, len(raw))
+	for key, price := range raw {
+		addr, err := types.HexToAddress(key)
+		if err != nil {
+			return fmt.Errorf("price key %q is not an address: %w", key, err)
+		}
+		canonical := addr.Hex()
+		if _, dup := out[canonical]; dup {
+			return fmt.Errorf("%w: %s", ErrDuplicatePriceKey, canonical)
+		}
+		out[canonical] = price
+	}
+
+	*p = out
+	return nil
+}
 
 // Price returns the price of a token, or false if absent. The quote asset is
 // always worth exactly one unit of itself.

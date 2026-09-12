@@ -14,9 +14,11 @@ RFP 1: Private Agentic Trading Vaults.
 
 ## Status
 
-**Early implementation.** The netting engine — the core privacy mechanism — is
-implemented and tested. Nothing is deployed yet. See
-[docs/ROADMAP.md](docs/ROADMAP.md) for the milestone plan.
+**Running end-to-end on a local Vela stack.** The engine, the WASM app and the
+trigger contract are implemented, and a live run on Vela's Docker environment
+nets real trades inside the enclave (see [Live run](#live-run)). Not yet on a
+public testnet or real Nitro hardware. See [docs/ROADMAP.md](docs/ROADMAP.md) for
+the milestone plan.
 
 | Component | State |
 |---|---|
@@ -36,12 +38,45 @@ exporting `deploy`, `load_module`, `deposit`, `process_request` and
 `trusted_request`. Toolchain setup is in [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md);
 `./build.sh doctor` checks it.
 
-Both sides run their own suites — 103 Go tests, 15 Solidity — and a shared
+Both sides run their own suites — 108 Go tests, 15 Solidity — and a shared
 fixture holds them to the same wire format (see below).
 
-What is not yet done: a run against Vela's local stack, and the strategist SDK.
-Until the first exists, the batch lifecycle is proven by
-`TestEndToEndBatchLifecycle` rather than by a live network.
+What is not yet done: the strategist SDK, a public testnet deployment, and real
+Nitro hardware (the local stack emulates the enclave).
+
+## Live run
+
+`contracts/scripts/e2e-local.mjs` runs Legate against a real Vela stack: the WASM
+app executes in Vela's executor, payloads are encrypted to the enclave's key, the
+trigger swaps on chain, and settlement returns through a genuine `TRUSTPROCESS`
+request. Nothing is mocked except the trading venue.
+
+```bash
+# 1. Start Vela's local environment (from the vela-starterkit repository)
+cd vela-starterkit/dockerfiles && cp .env.dev .env && docker compose up -d
+
+# 2. Build the app and contracts
+cd legate/vela-app && ./build.sh production_build
+cd ../contracts && npx hardhat compile
+
+# 3. Run it
+node scripts/e2e-local.mjs
+```
+
+It runs two batches. In the second, alpha buys 10 WETH while beta sells 6, and
+the script asserts what reached the chain against what each manager decrypts:
+
+```
+public — anyone reading the chain:
+  one order: buy 4.0 WETH
+private — decrypted only by each manager:
+  alpha bought 10.0 WETH
+  beta sold    6.0 WETH
+✔ both sides settled at one clearing price (3000.0)
+```
+
+Each run deploys fresh tokens, a fresh trigger and a fresh app, so it can be
+repeated against the same stack without resetting it.
 
 ## Contracts
 
