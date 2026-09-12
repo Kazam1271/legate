@@ -15,6 +15,9 @@ expect it to be picked apart on the Horizen technical call.
 | Per-strategy NAV / performance | — (this is deliberately public) | Depositors, publicly, as an attestation |
 | Pooled TVL, total volume | — (deliberately public) | Everyone |
 
+These guarantees cover payload *contents*. Request metadata — length, sender,
+timing, success or failure — is a separate surface, covered in §4.4.
+
 ## 2. What breaks if privacy is removed
 
 If positions and strategy identity were public:
@@ -48,9 +51,15 @@ Being upfront about these, not hiding them:
    produce full deanonymization reports for authorized auditors. Legate is
    "private from other users," not "private from regulators." This needs to be
    explicit in user-facing copy.
-4. **Oracle trust.** Stork price feeds inform mandate checks (drawdown, max
-   position sizing relative to market price). A stale or manipulated feed could
-   let a strategy exceed its real risk limit before the engine catches it.
+4. **Price trust.** The enclave cannot fetch prices. The reference price a batch
+   nets at arrives with the `close_batch` request, and valuation prices arrive with
+   the request that needs them. What bounds the damage from a bad one is not the
+   feed but two independent checks: every intent carries its own limit price, and
+   the order handed to the trigger carries a quote bound derived from the tightest
+   of those limits, which the swap enforces on chain. A wrong reference price can
+   therefore stall a batch or skip intents, but cannot fill anyone past their own
+   limit. Sourcing prices from an oracle such as Stork is future work, and would
+   narrow but not remove this trust.
 
 ## 4. Where it still leaks (the honest gaps)
 
@@ -97,7 +106,60 @@ anything — the combined order reveals the pool's aggregate direction even thou
 no single strategy's is. This is a structural limit, not a bug to fix; it needs to
 be disclosed to strategists and depositors, not solved away.
 
-### 4.4 Enclave compromise scenarios
+### 4.4 Request metadata: what leaks around the ciphertext
+
+Encrypting a payload hides what it says. Everything *around* it — its length, who
+sent it, when, and whether it succeeded — stays public. Running Legate on a real
+Vela stack, and then tracing exactly what Vela's executor publishes, surfaced three
+such leaks. None of them is visible to a unit test, which only ever sees plaintext.
+
+**Payload length — found in the live run, fixed.** AES-GCM output is the plaintext
+plus a fixed 28 bytes, so ciphertext length is plaintext length. In the first live
+run, two buys and a sell encrypted to 214, 213 and 196 bytes. That was enough to
+read:
+
+| Signal in the length | Why |
+|---|---|
+| Which command was sent | Commands have different shapes |
+| Buy versus unconditional sell | A real limit price is ~18 characters longer than `"0x0"` |
+| Which strategy | `"alpha"` is one character longer than `"beta"` |
+| Rough order of magnitude of amounts | Hex strings grow with the value |
+
+Combined with the sender address below, an observer could read a strategist's
+direction straight off the chain — contradicting §1.
+
+Fix, implemented: every `PROCESS` payload is padded with trailing spaces to exactly
+`PaddedPayloadSize` (1024 bytes), which JSON already permits. The enclave
+**rejects** any other length rather than merely tolerating padding, because a
+single careless client would otherwise leak its own intents and thin everyone
+else's crowd. The live run now asserts that every encrypted request — buys, sells,
+registrations, allocations, batch closes — is the same size on chain, and that an
+unpadded intent is refused.
+
+**Error messages — found by reading the executor, open.** When the app returns an
+error, Vela's executor publishes it, truncated to 100 characters, in the signed
+`RequestCompleted` event. Legate's errors are specific, and some of them are about
+confidential state: `intent would exceed the mandate's maximum position` tells
+every observer that strategy is near its cap. Whether a request failed at all is
+public too, and so is a refused batch close — which reveals when too few strategies
+submitted to satisfy the k-anonymity guard.
+
+Proposed fix: treat business-rule rejections as successful requests that leave
+state unchanged and deliver the reason to the sender in an encrypted event, so an
+accepted intent and a rejected one look identical from outside. Malformed requests
+— bad padding, unparseable JSON — stay as public errors, since they reveal nothing
+about strategy state. This changes request semantics, including fees, so it is a
+deliberate decision rather than a quiet patch.
+
+**Sender address and timing — inherent to the request model, open.** Every request
+records its sender's address and block. Nobody learns which strategy a wallet runs
+from the chain alone, since registration is encrypted, but a wallet's activity
+pattern is visible: when it submits, and how often. Possible mitigations, none yet
+implemented: letting a manager authorise session keys so submissions do not all
+come from one address, and submitting cover intents at a steady cadence so real
+activity does not stand out.
+
+### 4.5 Enclave compromise scenarios
 - **Side-channel attacks on Nitro** are a known (if difficult) class of attack
   against TEEs generally. Legate inherits this risk from Vela; it is not something
   this project can independently mitigate.

@@ -50,7 +50,7 @@ func (h *harness) deposit(sender, token types.Address, amount uint64) types.Depo
 
 func (h *harness) process(sender types.Address, instr PayloadInstructions) types.ProcessResult {
 	h.t.Helper()
-	res := ProcessRequest(&sender, RequestTypeProcess, mustJSON(h.t, instr), h.state)
+	res := ProcessRequest(&sender, RequestTypeProcess, paddedJSON(h.t, instr), h.state)
 	if res.Error != "" {
 		h.t.Fatalf("process %q: %s", instr.Command, res.Error)
 	}
@@ -61,7 +61,7 @@ func (h *harness) process(sender types.Address, instr PayloadInstructions) types
 // processExpectingError runs a command that should be rejected.
 func (h *harness) processExpectingError(sender types.Address, instr PayloadInstructions) string {
 	h.t.Helper()
-	res := ProcessRequest(&sender, RequestTypeProcess, mustJSON(h.t, instr), h.state)
+	res := ProcessRequest(&sender, RequestTypeProcess, paddedJSON(h.t, instr), h.state)
 	if res.Error == "" {
 		h.t.Fatalf("process %q: expected an error, got none", instr.Command)
 	}
@@ -114,6 +114,90 @@ func mustJSON(t *testing.T, v interface{}) string {
 		t.Fatalf("marshal: %v", err)
 	}
 	return string(b)
+}
+
+// paddedJSON encodes a command the way a real client must: padded to the fixed
+// size, so its length reveals nothing.
+func paddedJSON(t *testing.T, v interface{}) string {
+	t.Helper()
+	padded, err := PadPayload([]byte(mustJSON(t, v)))
+	if err != nil {
+		t.Fatalf("pad: %v", err)
+	}
+	return string(padded)
+}
+
+// Every command, whatever it says, must be the same length on the wire.
+func TestAllCommandsPadToTheSameLength(t *testing.T) {
+	commands := []PayloadInstructions{
+		intentCmd("alpha", SideBuy, 10, price(t, 3_100)),
+		intentCmd("beta", SideSell, 6, types.Uint256{}),
+		registerCmd("a-much-longer-strategy-identifier"),
+		{Command: "close_batch", CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000))}},
+		{Command: "allocate", Allocate: &AllocateCmd{
+			StrategyID: "alpha", Amount: types.NewUint256(1), Prices: pricesAt(t, 3_000),
+		}},
+	}
+	for _, c := range commands {
+		if got := len(paddedJSON(t, c)); got != PaddedPayloadSize {
+			t.Fatalf("%s padded to %d bytes, want %d", c.Command, got, PaddedPayloadSize)
+		}
+	}
+}
+
+// Accepting short payloads would let one careless client leak its own intents,
+// so the enclave refuses them rather than tolerating them.
+func TestUnpaddedPayloadIsRejected(t *testing.T) {
+	h := newHarness(t)
+	h.process(managerA, registerCmd("alpha"))
+
+	sender := managerA
+	unpadded := mustJSON(t, intentCmd("alpha", SideBuy, 1, price(t, 3_100)))
+	res := ProcessRequest(&sender, RequestTypeProcess, unpadded, h.state)
+
+	if res.Error == "" {
+		t.Fatal("an unpadded payload must be rejected")
+	}
+	if !strings.Contains(res.Error, "padded") {
+		t.Fatalf("unexpected error: %s", res.Error)
+	}
+	if strings.Contains(res.Error, "1024") || strings.Contains(res.Error, "bytes") {
+		t.Fatalf("the public error must not restate lengths: %s", res.Error)
+	}
+}
+
+func TestOverlongPayloadIsRejected(t *testing.T) {
+	h := newHarness(t)
+	sender := managerA
+	res := ProcessRequest(&sender, RequestTypeProcess, strings.Repeat(" ", PaddedPayloadSize+1), h.state)
+	if res.Error == "" {
+		t.Fatal("a payload longer than the fixed size must be rejected")
+	}
+}
+
+func TestPadPayloadRefusesCommandsThatDoNotFit(t *testing.T) {
+	if _, err := PadPayload(make([]byte, PaddedPayloadSize+1)); err != ErrPayloadTooLarge {
+		t.Fatalf("expected ErrPayloadTooLarge, got %v", err)
+	}
+}
+
+// Padding must be whitespace. Anything else after the JSON value is not a padded
+// command but a malformed one.
+func TestNonWhitespacePaddingIsRejected(t *testing.T) {
+	h := newHarness(t)
+	sender := managerA
+
+	body := []byte(mustJSON(t, registerCmd("alpha")))
+	payload := make([]byte, PaddedPayloadSize)
+	copy(payload, body)
+	for i := len(body); i < PaddedPayloadSize; i++ {
+		payload[i] = 'x'
+	}
+
+	res := ProcessRequest(&sender, RequestTypeProcess, string(payload), h.state)
+	if res.Error == "" {
+		t.Fatal("non-whitespace padding must be rejected")
+	}
 }
 
 func registerCmd(id string) PayloadInstructions {

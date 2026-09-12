@@ -133,16 +133,37 @@ async function poll(label, fn, { timeoutMs = 240_000, intervalMs = 1_000 } = {})
   }
 }
 
-async function waitForCompletion(client, requestId, fromBlock, label) {
-  const result = await poll(label, async () => {
+async function awaitResult(client, requestId, fromBlock, label) {
+  return poll(label, async () => {
     const latest = await provider.getBlockNumber();
     return client.getRequestCompletedEvent(requestId, latest, fromBlock);
   });
+}
+
+async function waitForCompletion(client, requestId, fromBlock, label) {
+  const result = await awaitResult(client, requestId, fromBlock, label);
   if (result.status !== 0n) {
     throw new Error(`${label} failed in the enclave (code ${result.errorCode}): ${result.errorMessage}`);
   }
   return result;
 }
+
+// Must match app.PaddedPayloadSize. Ciphertext length reveals plaintext length,
+// so every command is padded to one size and the enclave rejects any other.
+const PADDED_PAYLOAD_SIZE = 1024;
+
+function padPayload(json) {
+  const bytes = stringToBytes(json);
+  if (bytes.length > PADDED_PAYLOAD_SIZE) {
+    throw new Error(`command is ${bytes.length} bytes, over the ${PADDED_PAYLOAD_SIZE}-byte padded size`);
+  }
+  const padded = new Uint8Array(PADDED_PAYLOAD_SIZE).fill(0x20); // ASCII space
+  padded.set(bytes);
+  return padded;
+}
+
+// Size of every encrypted PROCESS payload that reached the chain.
+const cipherSizes = [];
 
 // ---------------------------------------------------------------------------
 // Actors
@@ -188,7 +209,8 @@ async function associateKey(who, appId) {
 
 async function submitProcess(who, appId, instructions, { token = ETH_TOKEN, amount = 0n } = {}) {
   const plaintext = JSON.stringify(instructions);
-  const ciphertext = await who.client.encryptForTee(stringToBytes(plaintext));
+  const ciphertext = await who.client.encryptForTee(padPayload(plaintext));
+  cipherSizes.push(ciphertext.length);
 
   if (token !== ETH_TOKEN && amount > 0n) {
     await (await who.client.approveToken(token, amount)).wait();
@@ -433,6 +455,34 @@ async function main() {
   await submitProcess(betaManager, appId, { command: 'register_strategy', registerStrategy: { id: 'beta', mandate } });
   ok('strategies alpha and beta registered');
 
+  step('The enclave refuses a payload that is not padded');
+  {
+    // Encrypted exactly as a careless client would, without padding.
+    const unpadded = JSON.stringify({
+      command: 'submit_intent',
+      intent: { strategyId: 'alpha', base: WETH, side: SIDE.buy, amount: hex(E18), limitPrice: hex(LIMIT_PRICE) },
+    });
+    const ciphertext = await alphaManager.client.encryptForTee(stringToBytes(unpadded));
+    const receipt = await alphaManager.client.submitRequestAndWaitForRequestId(
+      PROTOCOL_VERSION,
+      appId,
+      RequestType.PROCESS,
+      ciphertext,
+      ETH_TOKEN,
+      0n,
+      MAX_FEE,
+    );
+    submitted.add(receipt.requestId);
+    const result = await awaitResult(
+      alphaManager.client,
+      receipt.requestId,
+      receipt.transactionReceipt.blockNumber,
+      'the unpadded request to be judged',
+    );
+    check(result.status !== 0n, `a ${ciphertext.length}-byte unpadded intent was rejected`);
+    check(/padded/.test(result.errorMessage ?? ''), `rejection reason: "${result.errorMessage}"`);
+  }
+
   step('Depositor funds the pool and privately backs both strategies');
   for (const [strategyId, amount] of [
     ['alpha', 100_000n * E18],
@@ -491,6 +541,13 @@ async function main() {
   check(
     alphaPrice !== undefined && alphaPrice === betaPrice,
     `both sides settled at one clearing price (${fmt(BigInt(alphaPrice ?? 0))}), so neither can tell it crossed internally`,
+  );
+
+  // Buys and sells, registrations, allocations and batch closes all look alike.
+  const sizes = new Set(cipherSizes);
+  check(
+    sizes.size === 1,
+    `all ${cipherSizes.length} encrypted requests were ${[...sizes].join('/')} bytes on chain, whatever they said`,
   );
 
   console.log(green(bold('\nLive run passed: Legate netted real trades on a Vela enclave.\n')));

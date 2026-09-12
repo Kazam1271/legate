@@ -40,7 +40,44 @@ var (
 	ErrNotOperator      = errors.New("only the operator may perform this action")
 	ErrUnknownCommand   = errors.New("unsupported command")
 	ErrNoPendingIntents = errors.New("no pending intents to batch")
+	ErrPayloadNotPadded = errors.New("payload must be padded to the fixed size")
+	ErrPayloadTooLarge  = errors.New("payload does not fit the fixed size")
 )
+
+// PaddedPayloadSize is the exact plaintext length every PROCESS payload must
+// have.
+//
+// Encryption hides what a payload says but not how long it is: AES-GCM output is
+// the plaintext plus a fixed 28 bytes. Unpadded, the length alone told a chain
+// observer which command was sent, whether an intent carried a limit price
+// (which separates buys from unconditional sells), the length of the strategy
+// ID, and the rough magnitude of hex-encoded amounts. Combined with the sender
+// address every request exposes, that was enough to read a strategist's
+// direction off the chain. The first live run on Vela showed it plainly: two
+// buys and a sell encrypted to 214, 213 and 196 bytes.
+//
+// Every command is therefore padded to one size, so all requests look alike.
+// The enclave enforces the size rather than merely tolerating padding: if it
+// accepted short payloads, a single careless client would leak its own intents
+// and shrink everyone else's crowd.
+//
+// Padding is trailing ASCII spaces, which JSON already permits after the value,
+// so parsing needs no special handling. 1024 bytes comfortably fits the largest
+// command, a strategy registration with its mandate.
+const PaddedPayloadSize = 1024
+
+// PadPayload pads a JSON command to PaddedPayloadSize with trailing spaces.
+func PadPayload(payload []byte) ([]byte, error) {
+	if len(payload) > PaddedPayloadSize {
+		return nil, ErrPayloadTooLarge
+	}
+	out := make([]byte, PaddedPayloadSize)
+	copy(out, payload)
+	for i := len(payload); i < PaddedPayloadSize; i++ {
+		out[i] = ' '
+	}
+	return out, nil
+}
 
 // DeployParams are the constructor parameters, supplied in the deploy
 // descriptor's constructorParams field.
@@ -212,11 +249,15 @@ func ProcessRequest(sender *types.Address, requestType int32, payloadJSON, state
 		return handleDeanonymization(st)
 	}
 
+	// Checked before parsing, and the error deliberately omits the length it
+	// saw: it is public, and there is no reason to restate it.
+	if len(payloadJSON) != PaddedPayloadSize {
+		return types.ProcessResult{Error: fmt.Sprintf("process: %v", ErrPayloadNotPadded)}
+	}
+
 	var instr PayloadInstructions
-	if payloadJSON != "" && payloadJSON != "{}" {
-		if err := json.Unmarshal([]byte(payloadJSON), &instr); err != nil {
-			return types.ProcessResult{Error: fmt.Sprintf("process: bad payload: %v", err)}
-		}
+	if err := json.Unmarshal([]byte(payloadJSON), &instr); err != nil {
+		return types.ProcessResult{Error: fmt.Sprintf("process: bad payload: %v", err)}
 	}
 
 	switch instr.Command {
