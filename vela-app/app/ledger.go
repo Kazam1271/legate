@@ -335,22 +335,58 @@ func (st *ApplicationInternalState) checkSellCovered(s *Strategy, in Intent) err
 	return nil
 }
 
-// pendingBuyCost sums the worst-case cost of a strategy's queued buys.
+// committedIntents returns every intent a strategy has outstanding: those
+// queued for the next batch, and those in a batch already sent to market but
+// not yet settled.
+//
+// Funds backing an in-flight batch are spoken for even though the ledger still
+// shows them, because settlement has not yet debited them. Counting only the
+// pending queue would let a strategy commit the same money twice by submitting
+// again between close_batch and settlement.
+//
+// Summation is order-independent, so iterating the open-batch map directly is
+// safe here; no sort is needed.
+func (st *ApplicationInternalState) committedIntents(strategyID string, fn func(Intent) error) error {
+	for i := range st.Pending {
+		if st.Pending[i].StrategyID != strategyID {
+			continue
+		}
+		if err := fn(st.Pending[i]); err != nil {
+			return err
+		}
+	}
+	for _, open := range st.Open {
+		if open == nil {
+			continue
+		}
+		for _, in := range open.Plan.Included {
+			if in.StrategyID != strategyID {
+				continue
+			}
+			if err := fn(in); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// pendingBuyCost sums the worst-case cost of a strategy's outstanding buys.
 func (st *ApplicationInternalState) pendingBuyCost(strategyID string) (types.Uint256, error) {
 	var total types.Uint256
-	for i := range st.Pending {
-		p := &st.Pending[i]
-		if p.StrategyID != strategyID || p.Side != SideBuy || p.Amount == nil || p.LimitPrice == nil {
-			continue
+	err := st.committedIntents(strategyID, func(p Intent) error {
+		if p.Side != SideBuy || p.Amount == nil || p.LimitPrice == nil {
+			return nil
 		}
 		cost, err := ApplyPrice(*p.Amount, *p.LimitPrice)
 		if err != nil {
-			return types.Uint256{}, err
+			return err
 		}
 		total, err = Add(total, cost)
-		if err != nil {
-			return types.Uint256{}, err
-		}
+		return err
+	})
+	if err != nil {
+		return types.Uint256{}, err
 	}
 	return total, nil
 }
@@ -367,16 +403,16 @@ func (st *ApplicationInternalState) pendingSellBase(strategyID string, base type
 
 func (st *ApplicationInternalState) pendingBase(strategyID string, base types.Address, side Side) (types.Uint256, error) {
 	var total types.Uint256
-	for i := range st.Pending {
-		p := &st.Pending[i]
-		if p.StrategyID != strategyID || p.Side != side || p.Base != base || p.Amount == nil {
-			continue
+	err := st.committedIntents(strategyID, func(p Intent) error {
+		if p.Side != side || p.Base != base || p.Amount == nil {
+			return nil
 		}
 		var err error
 		total, err = Add(total, *p.Amount)
-		if err != nil {
-			return types.Uint256{}, err
-		}
+		return err
+	})
+	if err != nil {
+		return types.Uint256{}, err
 	}
 	return total, nil
 }

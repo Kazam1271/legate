@@ -177,6 +177,11 @@ type ApplicationInternalState struct {
 	// QuoteToken is the asset deposits and NAV are denominated in.
 	QuoteToken types.Address `json:"quoteToken"`
 
+	// Operator may close batches. Empty means anyone may, which is only
+	// appropriate in development: whoever closes batches controls their timing,
+	// and timing is a signal in itself.
+	Operator string `json:"operator"`
+
 	Config NettingConfig `json:"config"`
 
 	Strategies map[string]*Strategy `json:"strategies"`

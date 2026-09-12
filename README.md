@@ -25,13 +25,20 @@ implemented and tested. Nothing is deployed yet. See
 | `vela-app/app/state.go` — confidential state, mandates, NAV | Implemented, tested |
 | `vela-app/app/ledger.go` — deposits, shares, redemption, intents | Implemented, tested |
 | `vela-app/app/settle.go` — clearing price and fill allocation | Implemented, tested |
-| `vela-app/main.go` — Vela WASM exports | Stub |
-| `sdk/` — strategist intent client | Stub |
+| `vela-app/app/abi.go` — order/fill codec for the trigger | Implemented, tested |
+| `vela-app/app/handlers.go` — command dispatch, batch lifecycle | Implemented, tested |
+| `vela-app/main.go` — Vela WASM exports | Implemented |
 | `contracts/LegateTrigger.sol` — execution trigger | Not started |
+| `sdk/` — strategist intent client | Stub |
 
-The engine compiles to WASM under TinyGo 0.39.0, so it is deployable into a Vela
-enclave as-is. Toolchain setup is in [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md);
-`cd vela-app && ./build.sh doctor` checks it.
+`./build.sh build` produces `legate_app.wasm`, a complete Vela guest module
+exporting `deploy`, `load_module`, `deposit`, `process_request` and
+`trusted_request`. Toolchain setup is in [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md);
+`./build.sh doctor` checks it.
+
+What is not yet done: the trigger contract that executes the order on chain, and
+a run against Vela's local stack. Until both exist, the batch lifecycle is proven
+by `TestEndToEndBatchLifecycle` rather than by a live network.
 
 ## Why
 

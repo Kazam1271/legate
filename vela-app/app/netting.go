@@ -227,6 +227,95 @@ func NetBatch(intents []Intent, refPrice types.Uint256, cfg NettingConfig) (*Bat
 	return plan, nil
 }
 
+// ErrNoPriceBound is returned when a batch would go to market with nothing
+// bounding its execution price.
+var ErrNoPriceBound = errors.New("batch has no price bound: set limit prices or a slippage tolerance")
+
+const bpsDenominator = 10_000
+
+// QuoteLimitFor computes the bound the trigger contract must enforce on chain.
+//
+// For a buy it is the most quote that may be spent; for a sell the least that
+// must be received. This is the real protection against a bad fill: the enclave
+// checks limit prices against the reference price before execution, but only
+// learns the realised price afterwards, when the trade has already happened.
+//
+// The bound is taken from the tightest participant limit in the *whole* batch,
+// not just the side going to market. Everyone settles at one clearing price, so
+// a bad fill on the residual can breach the limit of someone who only crossed.
+func QuoteLimitFor(plan *BatchPlan, slippageBps uint32) (types.Uint256, error) {
+	bound, ok := priceBound(plan, slippageBps)
+	if !ok {
+		return types.Uint256{}, ErrNoPriceBound
+	}
+	return ApplyPrice(plan.ResidualBase, bound)
+}
+
+// priceBound returns the worst price the batch may execute at, and whether any
+// bound exists at all.
+func priceBound(plan *BatchPlan, slippageBps uint32) (types.Uint256, bool) {
+	buying := plan.ResidualSide == SideBuy
+
+	var bound types.Uint256
+	found := false
+
+	// Buyers cap the price from above, sellers floor it from below. Take the
+	// tightest limit stated by anyone in the batch.
+	for _, in := range plan.Included {
+		if in.LimitPrice == nil || in.LimitPrice.IsZero() {
+			continue
+		}
+		if buying && in.Side != SideBuy {
+			continue
+		}
+		if !buying && in.Side != SideSell {
+			continue
+		}
+		if !found {
+			bound, found = *in.LimitPrice, true
+			continue
+		}
+		if buying && in.LimitPrice.Cmp(bound) < 0 {
+			bound = *in.LimitPrice // lowest ceiling wins
+		}
+		if !buying && in.LimitPrice.Cmp(bound) > 0 {
+			bound = *in.LimitPrice // highest floor wins
+		}
+	}
+
+	// A slippage tolerance around the reference price applies as well, and the
+	// tighter of the two wins.
+	if slippageBps > 0 {
+		if tol, err := toleranceBound(plan.RefPrice, slippageBps, buying); err == nil {
+			if !found {
+				return tol, true
+			}
+			if buying && tol.Cmp(bound) < 0 {
+				bound = tol
+			}
+			if !buying && tol.Cmp(bound) > 0 {
+				bound = tol
+			}
+		}
+	}
+
+	return bound, found
+}
+
+// toleranceBound applies a basis-point tolerance to the reference price.
+func toleranceBound(refPrice types.Uint256, bps uint32, buying bool) (types.Uint256, error) {
+	factor := types.NewUint256(uint64(bpsDenominator))
+	if buying {
+		factor.Add64(uint64(bps))
+	} else {
+		if uint64(bps) >= bpsDenominator {
+			return types.Uint256{}, ErrNoPriceBound
+		}
+		factor = types.NewUint256(uint64(bpsDenominator - uint64(bps)))
+	}
+	return MulDiv(refPrice, *factor, *types.NewUint256(bpsDenominator))
+}
+
 // limitSatisfied reports whether an intent's limit price permits execution at
 // the reference price. A zero limit means the intent is unconditional.
 func limitSatisfied(in Intent, refPrice types.Uint256) bool {
