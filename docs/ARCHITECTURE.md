@@ -126,6 +126,51 @@ exists yet. See [ROADMAP.md](ROADMAP.md) for what M1 actually proves.
   computed on-chain), fee accrual. Never emits per-trade, per-strategy execution
   detail.
 
+### 3.5 Netting and settlement
+
+_Implemented in `vela-app/app/netting.go` and `settle.go`._
+
+Netting is what produces the privacy. Intents are denominated in base units on
+both sides, so opposing flow cancels directly:
+
+```
+crossed  = min(total_buy, total_sell)     matched inside the enclave, never on chain
+residual = |total_buy - total_sell|       the single public order
+```
+
+Crossed volume does not merely hide — it never reaches the market, so it incurs
+no slippage, no fee and leaves no footprint. Two guards keep the guarantee real:
+`MinContributors` (the k-anonymity guard, since with one contributor the residual
+*is* that strategy's order) and `MinResidual` (a very small public order is
+uneconomic and unusually identifying).
+
+**The clearing price is the price the market actually gave**, and everyone
+settles at it, including those who crossed internally. This is forced, not
+chosen. With clearing price P, the net quote the pool must find is
+`filledBase × P`, while the quote it actually paid or received is `filledQuote`,
+so `P = filledQuote / filledBase` is the only value at which the books balance.
+
+Settling everyone at one price is also a privacy property in its own right. If
+crossed and market-executed participants got different prices, each could tell
+from their own fill which group they were in, and thereby learn something about
+the rest of the batch.
+
+Consequences worth knowing:
+
+- **A failed market leg still settles the cross.** Internal matching has no
+  external dependency, so if the on-chain call reverts, crossed participants are
+  filled anyway at the reference price and only the residual goes unfilled.
+- **Partial fills fall on the larger side**, pro-rata. The smaller side is
+  always fully satisfied, because it is entirely absorbed by the cross.
+- **Rounding is conserved exactly.** Proportional shares round down, and the
+  remainder is handed out one unit at a time in a fixed order. No unit is ever
+  created or destroyed; the tests assert this directly.
+- **Limit prices are checked against the reference price before execution, but
+  the realised price can differ.** The trigger contract's on-chain slippage bound
+  is the actual protection. The enclave additionally flags a breach on
+  settlement, since by then the trade has already happened and refusing it would
+  only strand the batch.
+
 ### 3.4 Auditing
 - Vela's Authority Service can produce a deanonymization report (balances snapshot
   or transaction history) for an authorized auditor, generated inside the TEE and

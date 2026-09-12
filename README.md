@@ -24,7 +24,7 @@ implemented and tested. Nothing is deployed yet. See
 | `vela-app/app/netting.go` — batch netting, k-anonymity guard | Implemented, tested |
 | `vela-app/app/state.go` — confidential state, mandates, NAV | Implemented, tested |
 | `vela-app/app/ledger.go` — deposits, shares, redemption, intents | Implemented, tested |
-| `vela-app/app/settle.go` — fill allocation after execution | Not started |
+| `vela-app/app/settle.go` — clearing price and fill allocation | Implemented, tested |
 | `vela-app/main.go` — Vela WASM exports | Stub |
 | `sdk/` — strategist intent client | Stub |
 | `contracts/LegateTrigger.sol` — execution trigger | Not started |
