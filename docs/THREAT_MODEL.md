@@ -64,10 +64,22 @@ a crowd.**
 
 Mitigations (to prove in M1, not just claim):
 - Minimum strategy count per pool before it accepts depositor capital.
+  **Implemented** as the `MinContributors` k-anonymity guard in
+  `vela-app/app/netting.go`: a residual may only go to market if at least _k_
+  distinct strategies contributed, otherwise `NetBatch` refuses rather than leaking.
+  It does not apply when a batch fully internalises, since then no public order
+  exists to attribute.
 - Batching windows wide enough to mix multiple strategies' intents.
-- Randomized execution timing within the epoch window, so timing doesn't map
-  cleanly to any one strategy's typical behavior.
-- Order splitting / size randomization on the combined order itself.
+- ~~Randomized execution timing within the epoch window~~ — **not available.**
+  Vela guests must be deterministic: no clocks, no RNG (lock and batch IDs must
+  come from in-state counters). Randomness would have to be supplied from outside
+  the enclave, which means trusting whoever supplies it. Batch cadence is therefore
+  externally driven, and *who closes batches* becomes a design question in its own
+  right, tracked in ARCHITECTURE.md §4.
+- Order splitting on the combined order. Still possible, but note it must be driven
+  by deterministic in-state rules rather than randomisation, for the same reason.
+- Dust-residual suppression (`MinResidual`, implemented): a very small public order
+  is both uneconomic and unusually identifying, so it is internalised instead.
 
 ### 4.2 Deposit and withdrawal edges are visible
 The custody contract is public. Deposit and withdrawal amounts and timing are

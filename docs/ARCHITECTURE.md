@@ -75,9 +75,15 @@ exists yet. See [ROADMAP.md](ROADMAP.md) for what M1 actually proves.
 - Submits the encrypted intent as an L3 transaction to `ProcessorEndpoint`.
 
 ### 3.2 Vault engine (`vela-app/`)
-- Go, compiled to WASM, runs inside the Vela enclave (`vela-nova`-style single WASM
-  app per environment — this is why Legate is *one* app handling many strategies as
-  data, not one app per strategy).
+- Go, compiled to WASM with **TinyGo** (Vela pins v0.39.0), runs inside the Vela
+  enclave. Legate is *one* app handling many strategies as data, not one app per
+  strategy.
+  > **Corrected 2026-09-12.** This was previously justified by "Vela allows a single
+  > WASM app per environment". That is out of date: v0.2.0 derives a fresh
+  > `applicationId` per deploy and ships `multi_app_isolation_test.go`, so multiple
+  > apps are supported. One app for all strategies remains the right choice anyway —
+  > netting across strategies requires them to share state, which separate apps
+  > could not do.
 - State: per-strategy position + mandate, per-depositor share balance, encrypted,
   versioned (LevelDB per Vela's model), never readable in plaintext outside the
   enclave.
@@ -92,12 +98,28 @@ exists yet. See [ROADMAP.md](ROADMAP.md) for what M1 actually proves.
 - Everything to the market is `total = Σ(strategy positions)` — never a
   strategy-by-strategy breakdown.
 
-### 3.3 Custody contract (`contracts/`)
-- Solidity, on Horizen L3.
-- Holds all depositor funds. **The enclave never custodies funds directly** — it
-  only instructs the contract, and the contract only acts on an attested
-  instruction it can cryptographically verify came from the registered enclave.
-- Executes the combined order against a Horizen execution venue.
+### 3.3 Trigger contract (`contracts/`)
+
+> **Revised 2026-09-12** after reading the Vela v0.2.0 sources. The original plan —
+> a bespoke custody contract that verifies enclave attestations itself — would
+> re-implement what `ProcessorEndpoint` already does. Vela ships a purpose-built
+> mechanism for exactly this, the **trigger-contract flow**, and we should use it.
+
+- Solidity, on Horizen L3, extending Vela's `AbstractTrigger`. We override two
+  hooks (`_execute`, `_getTrustProcessPayload`); the base class supplies the
+  `onlyProcessorEndpoint` guard and the non-overridable sweep.
+- **Custody stays with `ProcessorEndpoint`**, which already verifies the TEE
+  signature on every state update. The enclave still never custodies funds.
+- The round trip per execution:
+  1. the engine returns a `Withdrawal` to the trigger — funds move in (unshield),
+  2. it emits one `AppEvent` with ABI-encoded order parameters,
+  3. `trigger.execute()` performs the swap from the pool's own address,
+  4. `trigger.withdraw()` sweeps the proceeds back (reshield),
+  5. `getTrustProcessPayload()` returns the fill, which re-enters the enclave as a
+     `TRUSTPROCESS` request handled by the `trusted_request` export.
+- This is what lets the enclave act on a public venue without revealing whom it is
+  acting for. If `_execute` reverts, the full amount is swept back and depositors
+  are made whole.
 - Deposits/withdrawals gate through PureFi (`verifier.validatePayload`) before the
   contract accepts funds.
 - Emits public events: pooled NAV, per-strategy NAV (attested by the enclave, not
@@ -125,10 +147,26 @@ exists yet. See [ROADMAP.md](ROADMAP.md) for what M1 actually proves.
 - **Bad-debt / drawdown handling.** What happens if a strategy blows through its
   mandate before the engine catches it (oracle lag, extreme volatility)?
 
-## 5. Dependencies on Horizen infra (not yet available)
+## 5. Dependencies on Horizen infra
 
-- Vela on Horizen testnet/mainnet (docs say local-only as of Sep 2026; ask DevRel).
-- Vela ERC-20 support (not shipped as of Sep 2026 — needed for USDC.e deposits).
-- A live Horizen execution venue with real liquidity.
+_Re-checked 2026-09-12 against the Vela v0.2.0 sources and starter-kit docs, which
+are considerably newer than the published docs site._
+
+Still blocking:
+
+- **Vela on a real network.** `docs.horizen.io` says local-only; `horizenlabs.io/vela`
+  advertises early access on Base Sepolia. Still unresolved — ask DevRel. This
+  decides whether M1 can target a network or only local dev.
+- **A live Horizen execution venue with real liquidity.** ZENDEX and DarkSwap are
+  both still "coming soon".
+
+No longer blocking (previously listed as blockers):
+
+- ~~Vela ERC-20 support~~ — **shipped in v0.2.0.** There is a standalone
+  `TokenAllowlist` contract injected into `ProcessorEndpoint`, `deposit` takes a
+  token address (`0x0` = ETH), `Withdrawal` carries a `TokenAddress`, and the
+  reference app has `erc20_fullstack_test.go` and `private_transfer_erc20_test.go`.
+  USDC.e deposits are therefore possible now.
+- ~~One WASM app per environment~~ — multi-app isolation is supported (see §3.2).
 
 These gate what M1 can actually demonstrate. See ROADMAP.md.

@@ -1,18 +1,26 @@
+# Node
 node_modules/
+npm-debug.log*
 dist/
+
+# Build output
 build/
-*.log
-.env
-.env.local
-.DS_Store
-Thumbs.db
+production_build/
+*.wasm
+*.wat
 
 # Go
-*.exe
-*.test
 vendor/
+*.test
+coverage.out
 
-# Foundry
-cache/
-out/
-broadcast/
+# Local config and secrets — never commit keys
+.env
+*.conf
+!*.conf.template
+wallet.conf
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
