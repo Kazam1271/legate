@@ -100,6 +100,24 @@ exists yet. See [ROADMAP.md](ROADMAP.md) for what M1 actually proves.
 
 ### 3.3 Trigger contract (`contracts/`)
 
+_Implemented in `contracts/contracts/LegateTrigger.sol`._
+
+Two properties worth recording, both consequences of how the venue is called:
+
+- **The residual is all-or-nothing.** A buy asks the router for an exact output
+  and a sell supplies an exact input, so the order either fills within the
+  enclave's bound or the swap reverts. Asking for an exact output on a buy is
+  also what stops a favourable price handing the pool more base than the batch
+  has owners for. The partial-fill handling in settlement therefore exists for
+  venues that can fill partially, such as an order book like ZENDEX, rather than
+  for a constant-product router.
+- **A failed swap is a safe outcome, not a lost one.** The endpoint catches the
+  revert, the base class sweeps every token back, and the trigger still returns a
+  payload marking the leg failed. The enclave then settles the internally crossed
+  volume and leaves only the residual unfilled. Returning nothing on failure
+  would strand the batch, because the enclave holds it open until told what
+  happened.
+
 > **Revised 2026-09-12** after reading the Vela v0.2.0 sources. The original plan —
 > a bespoke custody contract that verifies enclave attestations itself — would
 > re-implement what `ProcessorEndpoint` already does. Vela ships a purpose-built

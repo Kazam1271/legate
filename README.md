@@ -28,7 +28,7 @@ implemented and tested. Nothing is deployed yet. See
 | `vela-app/app/abi.go` — order/fill codec for the trigger | Implemented, tested |
 | `vela-app/app/handlers.go` — command dispatch, batch lifecycle | Implemented, tested |
 | `vela-app/main.go` — Vela WASM exports | Implemented |
-| `contracts/LegateTrigger.sol` — execution trigger | Not started |
+| `contracts/LegateTrigger.sol` — execution trigger | Implemented, tested |
 | `sdk/` — strategist intent client | Stub |
 
 `./build.sh build` produces `legate_app.wasm`, a complete Vela guest module
@@ -36,9 +36,33 @@ exporting `deploy`, `load_module`, `deposit`, `process_request` and
 `trusted_request`. Toolchain setup is in [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md);
 `./build.sh doctor` checks it.
 
-What is not yet done: the trigger contract that executes the order on chain, and
-a run against Vela's local stack. Until both exist, the batch lifecycle is proven
-by `TestEndToEndBatchLifecycle` rather than by a live network.
+Both sides run their own suites — 103 Go tests, 15 Solidity — and a shared
+fixture holds them to the same wire format (see below).
+
+What is not yet done: a run against Vela's local stack, and the strategist SDK.
+Until the first exists, the batch lifecycle is proven by
+`TestEndToEndBatchLifecycle` rather than by a live network.
+
+## Contracts
+
+```bash
+cd contracts
+git submodule update --init --depth 1   # Vela's contracts, not published to npm
+npm install
+npx hardhat test
+```
+
+`LegateTrigger` extends Vela's `AbstractTrigger`. It executes the one netted
+order a batch produces and reports the fill back into the enclave. It knows
+nothing about strategies — it sees a single pooled order, which is the point,
+since that order is a public on-chain event.
+
+The enclave and the contract each implement the order and fill encodings
+independently, in different languages. `contracts/test/fixtures/abi-vectors.json`
+is the shared fixture that stops them drifting: the Go suite asserts its encoder
+still produces those exact bytes, and the Hardhat suite asserts Solidity decodes
+them to the same values. A mismatch would otherwise surface only on chain, after
+funds had moved.
 
 ## Why
 

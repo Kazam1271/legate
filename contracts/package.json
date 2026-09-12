@@ -1,0 +1,18 @@
+{
+  "name": "legate-contracts",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Legate trigger contract for Vela",
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.0",
+    "vela": "file:lib/vela/contracts"
+  }
+}

@@ -3,6 +3,11 @@ node_modules/
 npm-debug.log*
 dist/
 
+# Hardhat
+artifacts/
+cache/
+typechain-types/
+
 # Build output
 build/
 production_build/
