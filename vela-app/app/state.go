@@ -163,6 +163,11 @@ func (a *Account) setUnallocated(token types.Address, v types.Uint256) {
 type OpenBatch struct {
 	ID   string    `json:"id"`
 	Plan BatchPlan `json:"plan"`
+
+	// QuoteLimit is the bound the order was sent with. For a buy it is also the
+	// quote handed to the trigger, so settlement needs it to know how much comes
+	// back unspent.
+	QuoteLimit types.Uint256 `json:"quoteLimit"`
 }
 
 // ApplicationInternalState is the whole confidential state of the vault. Vela
@@ -195,6 +200,20 @@ type ApplicationInternalState struct {
 	// Open holds batches awaiting settlement, keyed by batch ID.
 	Open map[string]*OpenBatch `json:"open"`
 
+	// Custody mirrors what the ProcessorEndpoint holds for this app, per token.
+	//
+	// It exists because of one line in the endpoint: a state update whose
+	// withdrawals exceed the app's on-chain custody reverts entirely. The request
+	// would then sit at the head of the queue for ever and block every request
+	// behind it — one accounting error would freeze the app for all users. The
+	// enclave cannot read the chain, so it keeps this mirror instead and refuses
+	// any withdrawal the mirror cannot cover.
+	//
+	// It moves exactly when on-chain custody does: up on a deposit, down on a
+	// withdrawal to a user or to the trigger, and up again when the trigger's
+	// sweep returns tokens after a batch executes.
+	Custody map[string]*types.Uint256 `json:"custody"`
+
 	// BatchNonce derives deterministic batch IDs. The enclave has no clock and
 	// no randomness, so every identifier must come from state.
 	BatchNonce uint64 `json:"batchNonce"`
@@ -213,7 +232,56 @@ func NewState(appID uint64, trigger string, quote types.Address, cfg NettingConf
 		Strategies:     make(map[string]*Strategy),
 		Accounts:       make(map[string]*Account),
 		Open:           make(map[string]*OpenBatch),
+		Custody:        make(map[string]*types.Uint256),
 	}
+}
+
+// ErrCustodyShortfall is returned when a withdrawal would exceed what the
+// endpoint holds for the app. Reaching it means the ledger and custody have
+// drifted apart, which should be impossible; refusing is what keeps that from
+// freezing the app.
+var ErrCustodyShortfall = errors.New("withdrawal exceeds the app's custody")
+
+// CustodyOf returns the mirrored custody of a token.
+func (st *ApplicationInternalState) CustodyOf(token types.Address) types.Uint256 {
+	if c, ok := st.Custody[token.Hex()]; ok && c != nil {
+		return *c
+	}
+	return types.Uint256{}
+}
+
+func (st *ApplicationInternalState) setCustody(token types.Address, v types.Uint256) {
+	if v.IsZero() {
+		delete(st.Custody, token.Hex())
+		return
+	}
+	cp := v
+	st.Custody[token.Hex()] = &cp
+}
+
+// addCustody records tokens arriving in the endpoint's custody.
+func (st *ApplicationInternalState) addCustody(token types.Address, amount types.Uint256) error {
+	next, err := Add(st.CustodyOf(token), amount)
+	if err != nil {
+		return err
+	}
+	st.setCustody(token, next)
+	return nil
+}
+
+// takeCustody records tokens leaving the endpoint's custody, refusing to go
+// below zero rather than emit a withdrawal the endpoint would revert.
+func (st *ApplicationInternalState) takeCustody(token types.Address, amount types.Uint256) error {
+	cur := st.CustodyOf(token)
+	if cur.Cmp(amount) < 0 {
+		return ErrCustodyShortfall
+	}
+	next, err := Sub(cur, amount)
+	if err != nil {
+		return err
+	}
+	st.setCustody(token, next)
+	return nil
 }
 
 // Strategy looks up a strategy by ID.

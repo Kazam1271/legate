@@ -96,9 +96,25 @@ visible on-chain, even though the *destination* (which strategy) is not. A
 sophisticated observer correlating deposit timing with subsequent NAV shifts could
 make probabilistic inferences.
 
-Mitigation under consideration: route deposits/withdrawals through a private
-ledger primitive (Vela's `vela-nova`-style private transfer model) rather than a
-plain public contract call — deferred past M1, tracked as a known gap.
+Withdrawal is implemented, and it is exactly as visible as this implies: the
+Withdrawal event names the recipient, token and amount. A depositor may withdraw to
+a different address, but **that does not unlink the two.** The Withdrawal event is
+published under the withdrawing request's ID, and that request's sender is public,
+so the chain records who withdrew to where. It is a convenience, and the code says
+so rather than implying otherwise.
+
+What stays private is everything behind the edge: which strategies the depositor
+backed, how many shares they redeemed from each, and at what value.
+
+Mitigations under consideration, both deferred past M1:
+- **Deferred, batched withdrawals.** Queue withdrawal requests privately — they
+  already look identical to every other command — and release them together under
+  the operator's batch-close request. That breaks the link between a depositor's
+  request and the Withdrawal event, and mixes recipients within each release. The
+  cost is latency, and a dependence on releases actually happening, which would
+  need a permissionless fallback so the operator cannot hold withdrawals hostage.
+- **A private ledger primitive** (Vela's `vela-nova`-style private transfer model)
+  in place of plain public deposits and withdrawals.
 
 ### 4.3 Netting doesn't hide net directional exposure
 If every strategy in the pool is long the same asset, netting doesn't hide
@@ -191,8 +207,10 @@ What a private rejection still reveals, or costs:
   announce itself.
 - **A deposit made alongside a refused allocation stays in the vault** as idle
   balance rather than being refunded, since an on-chain refund would announce the
-  refusal. This makes a depositor withdrawal command necessary; it does not exist
-  yet.
+  refusal. The depositor retrieves it with the `withdraw` command.
+- **A withdrawal's outcome is visible regardless.** An accepted withdrawal moves
+  funds and emits a Withdrawal event; a refused one does not. Private rejection
+  still hides the reason.
 
 **Sender address and timing — inherent to the request model, open.** Every request
 records its sender's address and block. Nobody learns which strategy a wallet runs

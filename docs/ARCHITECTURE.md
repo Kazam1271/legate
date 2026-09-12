@@ -1,7 +1,10 @@
 # Legate: Architecture
 
-Status: **design draft, unimplemented**. This describes the target system, not what
-exists yet. See [ROADMAP.md](ROADMAP.md) for what M1 actually proves.
+Status: **partly implemented.** Sections marked _Implemented_ describe code that
+exists and runs end to end on a local Vela stack. The component diagram and the
+remaining sections still describe the original target design, and some of it —
+attested per-strategy NAV events, a drawdown stop, a PureFi gate — is not built.
+See [ROADMAP.md](ROADMAP.md) for what M1 actually proves.
 
 ## 1. Goals
 
@@ -144,7 +147,7 @@ Two properties worth recording, both consequences of how the venue is called:
   computed on-chain), fee accrual. Never emits per-trade, per-strategy execution
   detail.
 
-### 3.5 Netting and settlement
+### 3.4 Netting and settlement
 
 _Implemented in `vela-app/app/netting.go` and `settle.go`._
 
@@ -189,7 +192,47 @@ Consequences worth knowing:
   settlement, since by then the trade has already happened and refusing it would
   only strand the batch.
 
-### 3.4 Auditing
+### 3.5 Custody and withdrawals
+
+_Implemented in `vela-app/app/state.go`, `ledger.go` and `settle.go`._
+
+A depositor exits in two steps: **redeem** converts shares into idle quote at the
+current NAV, and **withdraw** pays idle balance out through a Vela withdrawal,
+which the endpoint credits to the destination as a claim. Only idle balance can
+leave, and redemption pays from a strategy's quote holdings only, so a fully
+invested strategy must unwind a position before its depositors can exit.
+
+The enclave keeps a **mirror of the endpoint's custody** for the app, per token.
+It exists because of one line in `ProcessorEndpoint`: a state update whose
+withdrawals exceed the app's custody reverts in full. That request would then sit
+at the head of the queue indefinitely and block every request behind it, so a
+single accounting error would freeze the app for all users. The enclave cannot
+read the chain, so it mirrors custody instead and refuses — privately — any
+withdrawal the mirror cannot cover, whether to a user or to the trigger.
+
+The mirror moves exactly when on-chain custody does:
+
+| Event | Custody |
+|---|---|
+| Deposit | + amount |
+| Withdrawal to a user | − amount |
+| Batch sent to market | − what is handed to the trigger |
+| Trigger's sweep after execution | + unspent input + purchased output |
+| Fully internalised batch | unchanged |
+
+Whenever no batch is open, custody must equal every idle balance plus every
+strategy balance; during an open batch, less what is out with the trigger.
+`TestCustodyStaysBalancedThroughTheWholeLifecycle` asserts that after every step
+of a journey covering all of the above, with hand-checkable numbers, and was
+confirmed to fail when either the sweep credit or the trigger debit is removed.
+
+**Known limit.** The sweep credit assumes the trigger's sweep succeeded. Vela
+records a token whose transfer back fails as a failed sweep and leaves it in the
+trigger; the mirror would then overstate custody for that token. This needs a
+token that refuses transfers, and fixing it means reporting the sweep's actual
+result in the trigger's payload.
+
+### 3.6 Auditing
 - Vela's Authority Service can produce a deanonymization report (balances snapshot
   or transaction history) for an authorized auditor, generated inside the TEE and
   encrypted to the auditor's key. This is Legate's compliance path — not a public

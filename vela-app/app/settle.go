@@ -374,6 +374,47 @@ func breachesAnyLimit(intents []Intent, clearingPrice types.Uint256) bool {
 	return false
 }
 
+// ErrTriggerOverspent means the trigger reported spending more quote than it was
+// given. Its on-chain bound makes that impossible, so reaching it means the
+// trigger is not behaving as deployed.
+var ErrTriggerOverspent = errors.New("trigger reported spending more than its quote bound")
+
+// CreditSweep mirrors the tokens the trigger's sweep returns to the endpoint.
+//
+// When a batch goes to market the endpoint hands the trigger one token, and after
+// executing, the trigger sweeps back everything it holds: whatever of that token
+// went unspent, plus whatever it bought. The endpoint re-credits all of it to the
+// app. A failed leg is the same arithmetic with nothing traded — everything sent
+// comes straight back.
+//
+// This assumes the sweep succeeded. A token whose transfer back fails stays in
+// the trigger, and the mirror would then overstate custody. That needs a token
+// that refuses transfers, and is recorded as a known gap.
+func (st *ApplicationInternalState) CreditSweep(plan *BatchPlan, quoteLimit types.Uint256, s *Settlement) error {
+	if plan.ResidualSide == SideBuy {
+		if s.MarketQuote.Cmp(quoteLimit) > 0 {
+			return ErrTriggerOverspent
+		}
+		unspent, err := Sub(quoteLimit, s.MarketQuote)
+		if err != nil {
+			return err
+		}
+		if err := st.addCustody(plan.Quote, unspent); err != nil {
+			return err
+		}
+		return st.addCustody(plan.Base, s.MarketBase)
+	}
+
+	unsold, err := Sub(plan.ResidualBase, s.MarketBase)
+	if err != nil {
+		return err
+	}
+	if err := st.addCustody(plan.Base, unsold); err != nil {
+		return err
+	}
+	return st.addCustody(plan.Quote, s.MarketQuote)
+}
+
 // ApplySettlement moves the settled amounts through the confidential ledger.
 //
 // Base and quote move in opposite directions per side. A buy consumes quote the

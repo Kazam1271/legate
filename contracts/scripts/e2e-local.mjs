@@ -623,6 +623,61 @@ async function main() {
     `both sides settled at one clearing price (${fmt(BigInt(alphaPrice ?? 0))}), so neither can tell it crossed internally`,
   );
 
+  step('Depositor exits: redeem, withdraw, claim');
+  {
+    // Alpha now holds 40,000 USDC and 20 WETH, a NAV of 100,000; beta is back to
+    // 50,000 USDC. Redemption pays from quote only, so 40,000 of alpha's shares
+    // and all 50,000 of beta's can be redeemed.
+    //
+    // The WETH price is keyed by the checksummed address, as ethers produces it,
+    // while the enclave keys balances in lowercase. This exercises that
+    // normalisation on the real executor.
+    const checksummedWETH = ethers.getAddress(WETH);
+    const alphaRedeem = await submitProcess(depositor, appId, {
+      command: 'redeem',
+      redeem: { strategyId: 'alpha', shares: hex(40_000n * E18), prices: { [checksummedWETH]: hex(REF_PRICE) } },
+    });
+    await submitProcess(depositor, appId, {
+      command: 'redeem',
+      redeem: { strategyId: 'beta', shares: hex(50_000n * E18), prices: {} },
+    });
+
+    const alphaReceipt = await decryptReceipt(depositor, appId, alphaRedeem.requestId, alphaRedeem.block);
+    check(
+      alphaReceipt.status === 'accepted' && BigInt(alphaReceipt.detail.value) === 40_000n * E18,
+      `redeemed alpha for ${fmt(BigInt(alphaReceipt.detail?.value ?? 0))} USDC, priced with a checksummed key (private)`,
+    );
+
+    // A fresh wallet. Withdrawing here does not unlink it from the depositor: the
+    // Withdrawal event is published under the depositor's request, whose sender
+    // is public.
+    const destination = ethers.Wallet.createRandom().address;
+    const total = 90_000n * E18;
+    const withdrawal = await submitProcess(depositor, appId, {
+      command: 'withdraw',
+      withdraw: { token: USDC, amount: hex(total), destination },
+    });
+
+    const endpoint = admin.client.processorEndpoint;
+    const latest = await provider.getBlockNumber();
+    const [publicWithdrawal] = await endpoint.queryFilter(
+      endpoint.filters.Withdrawal(appId, withdrawal.requestId),
+      withdrawal.block,
+      latest,
+    );
+    check(
+      publicWithdrawal?.args.to === destination && publicWithdrawal?.args.amount === total,
+      `withdrew ${fmt(total)} USDC to a fresh address ${dim(destination)} (public, as any vault exit is)`,
+    );
+
+    const claimable = await admin.client.getPendingClaims(USDC, destination);
+    check(claimable === total, `the endpoint holds ${fmt(claimable)} USDC claimable for it`);
+
+    await (await depositor.client.claim(USDC, destination)).wait();
+    const received = await usdc.balanceOf(destination);
+    check(received === total, `after claiming, the fresh address holds ${fmt(received)} USDC`);
+  }
+
   // Buys and sells, registrations, allocations and batch closes all look alike.
   const sizes = new Set(cipherSizes);
   check(

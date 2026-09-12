@@ -55,7 +55,46 @@ func (st *ApplicationInternalState) Deposit(depositor types.Address, token types
 		return err
 	}
 	acct.setUnallocated(token, next)
-	return nil
+
+	// The endpoint took custody of the transfer before calling deposit.
+	return st.addCustody(token, amount)
+}
+
+// Withdraw pays a depositor's idle balance out of the vault.
+//
+// Only idle balance can leave. Value held in a strategy must be redeemed first,
+// which converts shares back into idle quote at the current NAV.
+//
+// Every check runs before anything changes. The custody check should never be
+// the one that fails — the ledger and custody move together — but it is not
+// redundant: a withdrawal the endpoint cannot cover reverts the whole state
+// update and freezes the app, so an accounting error must end here, as one
+// refused withdrawal, instead.
+func (st *ApplicationInternalState) Withdraw(owner, token types.Address, amount types.Uint256) error {
+	if amount.IsZero() {
+		return ErrZeroAmount
+	}
+
+	acct, ok := st.Accounts[owner.Hex()]
+	if !ok || acct == nil {
+		return ErrNoSuchAccount
+	}
+
+	idle := acct.UnallocatedBalance(token)
+	if idle.Cmp(amount) < 0 {
+		return ErrInsufficientFunds
+	}
+	if st.CustodyOf(token).Cmp(amount) < 0 {
+		return ErrCustodyShortfall
+	}
+
+	remaining, err := Sub(idle, amount)
+	if err != nil {
+		return err
+	}
+	acct.setUnallocated(token, remaining)
+
+	return st.takeCustody(token, amount)
 }
 
 // Allocate moves idle quote balance into a strategy and issues shares for it.

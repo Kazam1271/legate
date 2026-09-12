@@ -139,7 +139,24 @@ type PayloadInstructions struct {
 	Redeem           *RedeemCmd           `json:"redeem,omitempty"`
 	Intent           *IntentCmd           `json:"intent,omitempty"`
 	CloseBatch       *CloseBatchCmd       `json:"closeBatch,omitempty"`
+	Withdraw         *WithdrawCmd         `json:"withdraw,omitempty"`
 }
+
+// WithdrawCmd pays idle balance out to a wallet.
+type WithdrawCmd struct {
+	Token  string         `json:"token"`
+	Amount *types.Uint256 `json:"amount"`
+
+	// Destination defaults to the sender. Choosing another address does not
+	// unlink the two: the Withdrawal event is published under this request's ID,
+	// and the request's sender is public, so the chain shows who withdrew to
+	// where. It is a convenience, not a privacy feature.
+	Destination string `json:"destination,omitempty"`
+}
+
+// ErrBadDestination rejects withdrawal destinations that cannot receive funds
+// sensibly.
+var ErrBadDestination = errors.New("invalid withdrawal destination")
 
 type RegisterStrategyCmd struct {
 	ID      string  `json:"id"`
@@ -304,6 +321,8 @@ func ProcessRequest(sender *types.Address, requestType int32, payloadJSON, state
 		return handleSubmitIntent(req, instr.Intent)
 	case "close_batch":
 		return handleCloseBatch(req, instr.CloseBatch)
+	case "withdraw":
+		return handleWithdraw(req, instr.Withdraw)
 	default:
 		return malformed("process: %v: %q", ErrUnknownCommand, instr.Command)
 	}
@@ -438,6 +457,9 @@ func TrustedRequest(payload, stateJSON string) types.ProcessResult {
 	if err := st.ApplySettlement(&open.Plan, settlement); err != nil {
 		return types.ProcessResult{Error: fmt.Sprintf("trusted_request: %v", err)}
 	}
+	if err := st.CreditSweep(&open.Plan, open.QuoteLimit, settlement); err != nil {
+		return types.ProcessResult{Error: fmt.Sprintf("trusted_request: %v", err)}
+	}
 
 	events, err := fillEvents(st, settlement)
 	if err != nil {
@@ -493,6 +515,55 @@ func handleRedeem(r *commandRequest, cmd *RedeemCmd) types.ProcessResult {
 		return r.reject(err)
 	}
 	return r.accept(map[string]string{"value": value.ToHex()}, nil, nil, nil)
+}
+
+// handleWithdraw pays idle balance out through a Vela withdrawal, which the
+// endpoint credits to the destination as a claim.
+//
+// Unlike other commands, a withdrawal's outcome cannot be fully hidden: an
+// accepted one moves funds, and funds moving on chain are public. What private
+// rejection still protects is the reason — whether the sender lacked the balance,
+// or something else stopped it.
+func handleWithdraw(r *commandRequest, cmd *WithdrawCmd) types.ProcessResult {
+	if cmd == nil || cmd.Amount == nil {
+		return malformed("withdraw: missing parameters")
+	}
+
+	token, err := types.HexToAddress(cmd.Token)
+	if err != nil {
+		return malformed("withdraw: bad token: %v", err)
+	}
+
+	destination := r.sender
+	if cmd.Destination != "" {
+		if destination, err = types.HexToAddress(cmd.Destination); err != nil {
+			return malformed("withdraw: bad destination: %v", err)
+		}
+	}
+
+	// These say nothing about confidential state, so they fail in public.
+	//
+	// The endpoint would accept a withdrawal to the zero address and lose it. And
+	// it treats a withdrawal to the trigger as funding for a trade, claiming it
+	// into the trigger before executing, which would feed a user's money into the
+	// next batch's sweep.
+	if destination == (types.Address{}) {
+		return malformed("withdraw: %v: zero address", ErrBadDestination)
+	}
+	if r.st.TriggerAddress != "" && destination.Hex() == r.st.TriggerAddress {
+		return malformed("withdraw: %v: the trigger contract", ErrBadDestination)
+	}
+
+	if err := r.st.Withdraw(r.sender, token, *cmd.Amount); err != nil {
+		return r.reject(err)
+	}
+
+	amount := *cmd.Amount
+	return r.accept(nil, nil, nil, []types.Withdrawal{{
+		TokenAddress:       token,
+		DestinationAddress: destination,
+		Amount:             &amount,
+	}})
 }
 
 func handleSubmitIntent(r *commandRequest, cmd *IntentCmd) types.ProcessResult {
@@ -592,8 +663,6 @@ func handleCloseBatch(r *commandRequest, cmd *CloseBatchCmd) types.ProcessResult
 		return r.reject(err)
 	}
 
-	st.Open[key] = &OpenBatch{ID: key, Plan: *plan}
-
 	order := Order{
 		BatchID:    batchID,
 		Side:       plan.ResidualSide,
@@ -612,6 +681,14 @@ func handleCloseBatch(r *commandRequest, cmd *CloseBatchCmd) types.ProcessResult
 		withdrawToken = plan.Base
 		withdrawAmount = plan.ResidualBase
 	}
+
+	// Funding the trigger is a withdrawal like any other, and would freeze the app
+	// just the same if custody could not cover it.
+	if err := st.takeCustody(withdrawToken, withdrawAmount); err != nil {
+		return r.reject(err)
+	}
+
+	st.Open[key] = &OpenBatch{ID: key, Plan: *plan, QuoteLimit: quoteLimit}
 
 	withdrawals := []types.Withdrawal{{
 		TokenAddress:       withdrawToken,
@@ -796,6 +873,9 @@ func loadState(stateJSON string) (*ApplicationInternalState, error) {
 	}
 	if st.Open == nil {
 		st.Open = make(map[string]*OpenBatch)
+	}
+	if st.Custody == nil {
+		st.Custody = make(map[string]*types.Uint256)
 	}
 	return &st, nil
 }

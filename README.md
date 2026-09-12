@@ -25,7 +25,7 @@ the milestone plan.
 | `vela-app/app/math.go` — 512-bit `mulDiv` fixed-point math | Implemented, tested |
 | `vela-app/app/netting.go` — batch netting, k-anonymity guard | Implemented, tested |
 | `vela-app/app/state.go` — confidential state, mandates, NAV | Implemented, tested |
-| `vela-app/app/ledger.go` — deposits, shares, redemption, intents | Implemented, tested |
+| `vela-app/app/ledger.go` — deposits, shares, redemption, withdrawal, intents | Implemented, tested |
 | `vela-app/app/settle.go` — clearing price and fill allocation | Implemented, tested |
 | `vela-app/app/abi.go` — order/fill codec for the trigger | Implemented, tested |
 | `vela-app/app/handlers.go` — command dispatch, batch lifecycle | Implemented, tested |
@@ -38,7 +38,7 @@ exporting `deploy`, `load_module`, `deposit`, `process_request` and
 `trusted_request`. Toolchain setup is in [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md);
 `./build.sh doctor` checks it.
 
-Both sides run their own suites — 120 Go tests, 15 Solidity — and a shared
+Both sides run their own suites — 129 Go tests, 15 Solidity — and a shared
 fixture holds them to the same wire format (see below).
 
 What is not yet done: the strategist SDK, a public testnet deployment, and real
@@ -63,7 +63,8 @@ cd ../contracts && npx hardhat compile
 node scripts/e2e-local.mjs
 ```
 
-It runs two batches. In the second, alpha buys 10 WETH while beta sells 6, and
+It runs two batches, then has the depositor redeem and withdraw back to a wallet.
+In the second batch, alpha buys 10 WETH while beta sells 6, and
 the script asserts what reached the chain against what each manager decrypts:
 
 ```
@@ -73,7 +74,7 @@ private — decrypted only by each manager:
   alpha bought 10.0 WETH
   beta sold    6.0 WETH
 ✔ both sides settled at one clearing price (3000.0)
-✔ all 11 encrypted requests were 1052 bytes on chain, whatever they said
+✔ all 14 encrypted requests were 1052 bytes on chain, whatever they said
 ```
 
 That last line matters as much as the netting. Encryption hides what a request

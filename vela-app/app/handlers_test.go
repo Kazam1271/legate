@@ -80,7 +80,8 @@ func (h *harness) trusted(payload []byte) types.ProcessResult {
 }
 
 // fund credits a strategy directly, standing in for positions it would
-// otherwise have acquired by trading in an earlier batch.
+// otherwise have acquired by trading in an earlier batch. Those positions would
+// be held in the endpoint's custody, so the custody mirror is credited too.
 func (h *harness) fund(strategyID string, token types.Address, amount uint64) {
 	h.t.Helper()
 	st := h.load()
@@ -89,6 +90,9 @@ func (h *harness) fund(strategyID string, token types.Address, amount uint64) {
 		h.t.Fatalf("fund: %v", err)
 	}
 	if err := s.credit(token, u64(amount)); err != nil {
+		h.t.Fatalf("fund: %v", err)
+	}
+	if err := st.addCustody(token, u64(amount)); err != nil {
 		h.t.Fatalf("fund: %v", err)
 	}
 	h.save(st)
