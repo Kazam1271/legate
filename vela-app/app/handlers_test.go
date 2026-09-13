@@ -138,7 +138,7 @@ func TestAllCommandsPadToTheSameLength(t *testing.T) {
 		intentCmd("alpha", SideBuy, 10, price(t, 3_100)),
 		intentCmd("beta", SideSell, 6, types.Uint256{}),
 		registerCmd("a-much-longer-strategy-identifier"),
-		{Command: "close_batch", CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000))}},
+		{Command: "close_batch", CloseBatch: &CloseBatchCmd{Base: tokenWETH.Hex(), RefPrice: ptr(price(t, 3_000))}},
 		{Command: "allocate", Allocate: &AllocateCmd{
 			StrategyID: "alpha", Amount: types.NewUint256(1), Prices: pricesAt(t, 3_000),
 		}},
@@ -267,7 +267,7 @@ func TestEndToEndBatchLifecycle(t *testing.T) {
 	// Close the batch.
 	res := h.process(operator, PayloadInstructions{
 		Command:    "close_batch",
-		CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000))},
+		CloseBatch: &CloseBatchCmd{Base: tokenWETH.Hex(), RefPrice: ptr(price(t, 3_000))},
 	})
 
 	// Exactly one order reaches the chain.
@@ -367,7 +367,7 @@ func TestFullyInternalisedBatchPublishesNothing(t *testing.T) {
 
 	res := h.process(operator, PayloadInstructions{
 		Command:    "close_batch",
-		CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000))},
+		CloseBatch: &CloseBatchCmd{Base: tokenWETH.Hex(), RefPrice: ptr(price(t, 3_000))},
 	})
 
 	if len(res.AppEvents) != 0 {
@@ -406,7 +406,7 @@ func TestReplayedSettlementIsRejected(t *testing.T) {
 
 	res := h.process(operator, PayloadInstructions{
 		Command:    "close_batch",
-		CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000))},
+		CloseBatch: &CloseBatchCmd{Base: tokenWETH.Hex(), RefPrice: ptr(price(t, 3_000))},
 	})
 	order, err := DecodeOrder(res.AppEvents[0].Data)
 	if err != nil {
@@ -443,7 +443,7 @@ func TestOnlyTheOperatorMayCloseABatch(t *testing.T) {
 
 	receipt := h.processExpectingRejection(managerA, PayloadInstructions{
 		Command:    "close_batch",
-		CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000))},
+		CloseBatch: &CloseBatchCmd{Base: tokenWETH.Hex(), RefPrice: ptr(price(t, 3_000))},
 	})
 	if !strings.Contains(receipt.Reason, "only the operator") {
 		t.Fatalf("unexpected reason: %s", receipt.Reason)
@@ -467,7 +467,7 @@ func TestFundsInAnOpenBatchCannotBeSpentAgain(t *testing.T) {
 
 	h.process(operator, PayloadInstructions{
 		Command:    "close_batch",
-		CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000))},
+		CloseBatch: &CloseBatchCmd{Base: tokenWETH.Hex(), RefPrice: ptr(price(t, 3_000))},
 	})
 
 	// The batch is in flight. Alpha's money is committed even though its
@@ -635,7 +635,7 @@ func TestRejectionNeverPersistsPartialChanges(t *testing.T) {
 
 	receipt := h.processExpectingRejection(operator, PayloadInstructions{
 		Command:    "close_batch",
-		CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000)), SlippageBps: 0},
+		CloseBatch: &CloseBatchCmd{Base: tokenWETH.Hex(), RefPrice: ptr(price(t, 3_000)), SlippageBps: 0},
 	})
 	if !strings.Contains(receipt.Reason, "no price bound") {
 		t.Fatalf("unexpected reason: %s", receipt.Reason)
@@ -662,7 +662,7 @@ func TestTheKAnonymityRefusalIsPrivate(t *testing.T) {
 
 	receipt := h.processExpectingRejection(operator, PayloadInstructions{
 		Command:    "close_batch",
-		CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000))},
+		CloseBatch: &CloseBatchCmd{Base: tokenWETH.Hex(), RefPrice: ptr(price(t, 3_000))},
 	})
 	if receipt.Reason == "" {
 		t.Fatal("the operator should still learn privately why the batch did not close")

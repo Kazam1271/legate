@@ -213,7 +213,10 @@ What a private rejection still reveals, or costs:
 
 - **A refused batch close is not fully hidden.** It publishes no order, like a batch
   that internalised completely, but unlike one it carries no fill events. So *that*
-  nothing settled is visible; *why* is not.
+  nothing settled is visible; *why* is not. Pairs are closed one request at a
+  time, so this is visible per close. Which pair a close named is encrypted, but
+  if the operator closes pairs in a predictable order, an observer can infer which
+  pair's batch did or did not settle.
 - **A refusal is charged the full fee**, as an acceptance is. A cheaper refusal would
   announce itself.
 - **A deposit made alongside a refused allocation stays in the vault** as idle

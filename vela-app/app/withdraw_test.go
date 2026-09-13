@@ -185,7 +185,7 @@ func TestABatchCustodyCannotFundIsRefused(t *testing.T) {
 
 	receipt := h.processExpectingRejection(operator, PayloadInstructions{
 		Command:    "close_batch",
-		CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000))},
+		CloseBatch: &CloseBatchCmd{Base: tokenWETH.Hex(), RefPrice: ptr(price(t, 3_000))},
 	})
 	if !strings.Contains(receipt.Reason, "custody") {
 		t.Fatalf("unexpected reason: %s", receipt.Reason)
@@ -247,7 +247,7 @@ func TestCustodyStaysBalancedThroughTheWholeLifecycle(t *testing.T) {
 	closeBatch := func(slippageBps uint32) types.ProcessResult {
 		return h.process(operator, PayloadInstructions{
 			Command:    "close_batch",
-			CloseBatch: &CloseBatchCmd{RefPrice: ptr(price(t, 3_000)), SlippageBps: slippageBps},
+			CloseBatch: &CloseBatchCmd{Base: tokenWETH.Hex(), RefPrice: ptr(price(t, 3_000)), SlippageBps: slippageBps},
 		})
 	}
 	settle := func(closed types.ProcessResult, fill MarketFill) {

@@ -42,7 +42,7 @@ exporting `deploy`, `load_module`, `deposit`, `process_request` and
 `trusted_request`. Toolchain setup is in [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md);
 `./build.sh doctor` checks it.
 
-Both sides run their own suites — 129 Go tests, 15 Solidity — and a shared
+Both sides run their own suites — 137 Go tests, 15 Solidity — and a shared
 fixture holds them to the same wire format (see below).
 
 What is not yet done: a public testnet deployment, real Nitro hardware (the local
@@ -135,9 +135,11 @@ still to build.
 3. The engine, a WASM app inside a Vela enclave, checks the intent against the
    strategy's mandate (allowed tokens, maximum order size, maximum position) and
    whether the strategy can afford it, then queues it. A refusal is private: only
-   the strategist learns why.
-4. When the operator closes a batch, the engine nets the queued intents. If
-   anything is left over, it hands **one combined order** to its trigger contract,
+   the strategist learns why. A strategist can cancel an intent while it is still
+   queued.
+4. When the operator closes a batch for a token pair, the engine nets that pair's
+   queued intents, leaving other pairs queued. If anything is left over, it hands
+   **one combined order** to its trigger contract,
    which executes it against a venue. The fill comes back into the enclave, and
    every participant settles at one clearing price.
 5. Depositors back strategies privately, and exit by redeeming shares and
@@ -157,9 +159,8 @@ The original design promised more than the code does today. Not built:
 - A PureFi compliance check on deposits.
 - Batches on a schedule. The enclave has no clock, so batches close when the
   operator asks.
-- More than one token pair per batch. The current behaviour has a known issue that
-  lets one strategy block batching
-  ([ARCHITECTURE.md §3.4](docs/ARCHITECTURE.md#34-netting-and-settlement)).
+- Netting several token pairs in one batch. Each batch nets one pair, and the
+  operator closes pairs one at a time.
 - Fees, including the ZEN staking share.
 - The strategist SDK.
 - Private venues. ZENDEX and DarkSwap are not live, and the live run trades against

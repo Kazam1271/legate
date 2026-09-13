@@ -139,6 +139,14 @@ func NetBatch(intents []Intent, refPrice types.Uint256, cfg NettingConfig) (*Bat
 		return nil, ErrEmptyBatch
 	}
 
+	// A batch nets one token pair. Callers pass intents for a single pair —
+	// handleCloseBatch filters the queue by the pair the operator names — and
+	// anything on another pair is excluded here only as a safeguard.
+	//
+	// Taking the pair from the first intent is safe for that reason alone. When the
+	// whole queue was passed in, it let whoever queued first choose the pair, and a
+	// single intent on another pair could stall or silently drop every batch behind
+	// it.
 	base := intents[0].Base
 	quote := intents[0].Quote
 

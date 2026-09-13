@@ -32,8 +32,9 @@ not just a mockup.
       checks that the chain sees only the netted order while each manager
       decrypts their own full fill, that every request is the same size, and that
       a refused intent looks identical to an accepted one on chain.
-- [ ] Fix the known issue that lets one strategy block batching
-      (ARCHITECTURE.md §3.4).
+- [x] Fix the issue that let one strategy block batching (ARCHITECTURE.md §3.4).
+      Fixed 2026-09-13: `close_batch` names its pair, and managers can cancel
+      queued intents.
 - [ ] Attested per-strategy NAV published and independently verifiable. Not
       started.
 - [ ] Deploy on a public testnet (blocked on the DevRel question above).

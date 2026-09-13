@@ -352,7 +352,8 @@ async function runBatch(label, appId, trigger, weth, intents) {
   step(`${label}: operator closes the batch`);
   const close = await submitProcess(operator, appId, {
     command: 'close_batch',
-    closeBatch: { refPrice: hex(REF_PRICE), slippageBps: 0 },
+    // Pairs are closed one at a time, so the operator names the one it is closing.
+    closeBatch: { base: weth, refPrice: hex(REF_PRICE), slippageBps: 0 },
   });
   const order = await publicOrderFor(appId, close.requestId, close.block);
   info(

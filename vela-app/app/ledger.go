@@ -374,6 +374,74 @@ func (st *ApplicationInternalState) checkSellCovered(s *Strategy, in Intent) err
 	return nil
 }
 
+var (
+	// ErrNoSuchIntent covers both an unknown intent and one the sender does not
+	// manage. Distinguishing them would let anyone probe whether a given intent ID
+	// exists, and IDs come from a counter, so that would reveal how much activity
+	// the vault has seen.
+	ErrNoSuchIntent = errors.New("no such pending intent")
+
+	// ErrIntentInFlight is only ever returned to the intent's own manager.
+	ErrIntentInFlight = errors.New("intent is already in a batch sent to market")
+)
+
+// CancelIntent removes one of the sender's own queued intents, releasing the
+// funds it had committed.
+//
+// Without it a queued intent could only leave the queue by being batched, so a
+// strategy alone on a pair — which the k-anonymity guard will never release —
+// would have its funds committed indefinitely.
+//
+// An intent already in a batch sent to market cannot be cancelled: its funds are
+// with the trigger, and settlement will account for it.
+func (st *ApplicationInternalState) CancelIntent(sender types.Address, intentID string) error {
+	for i, in := range st.Pending {
+		if in.ID != intentID {
+			continue
+		}
+		if !st.managedBy(in.StrategyID, sender) {
+			return ErrNoSuchIntent
+		}
+		remaining := make([]Intent, 0, len(st.Pending)-1)
+		remaining = append(remaining, st.Pending[:i]...)
+		remaining = append(remaining, st.Pending[i+1:]...)
+		st.Pending = remaining
+		return nil
+	}
+
+	// Only whether a match exists matters here, so map order cannot reach the
+	// output.
+	for _, open := range st.Open {
+		if open == nil {
+			continue
+		}
+		for _, in := range open.Plan.Included {
+			if in.ID == intentID && st.managedBy(in.StrategyID, sender) {
+				return ErrIntentInFlight
+			}
+		}
+	}
+	return ErrNoSuchIntent
+}
+
+func (st *ApplicationInternalState) managedBy(strategyID string, sender types.Address) bool {
+	s, ok := st.Strategies[strategyID]
+	return ok && s != nil && s.Manager == sender
+}
+
+// splitPendingByPair separates the queued intents on one token pair from the
+// rest, preserving the order of both.
+func (st *ApplicationInternalState) splitPendingByPair(base, quote types.Address) (onPair, others []Intent) {
+	for _, in := range st.Pending {
+		if in.Base == base && in.Quote == quote {
+			onPair = append(onPair, in)
+		} else {
+			others = append(others, in)
+		}
+	}
+	return onPair, others
+}
+
 // committedIntents returns every intent a strategy has outstanding: those
 // queued for the next batch, and those in a batch already sent to market but
 // not yet settled.

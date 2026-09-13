@@ -101,10 +101,18 @@ _Implemented._
   allowed tokens, maximum order size, maximum position — and checks the strategy
   can afford it, counting what it already has queued or out in an open batch. A
   buy must carry a limit price, because that is what bounds its cost.
-- **Closing a batch** happens when the operator sends `close_batch` with a
-  reference price. There is no schedule: the enclave has no clock
-  (THREAT_MODEL.md §4.1). The engine then:
-  1. nets the queued intents against each other (§3.4);
+- **Cancelling an intent.** A manager can cancel their own intent while it is
+  still queued, which releases the funds it committed. An intent already in a
+  batch sent to market cannot be cancelled. Cancelling someone else's intent is
+  refused with the same reason as cancelling one that does not exist, so intent
+  IDs cannot be probed.
+- **Closing a batch** happens when the operator sends `close_batch` naming a token
+  pair and a reference price. There is no schedule: the enclave has no clock
+  (THREAT_MODEL.md §4.1). Only that pair's queued intents are netted; intents on
+  every other pair stay queued, untouched. Closing several pairs takes one request
+  each, because a batch produces one order and the trigger executes one order per
+  state update. The engine then:
+  1. nets that pair's queued intents against each other (§3.4);
   2. if they cancel out, settles them internally and publishes no order;
   3. otherwise emits one order for the residual, and hands the trigger the funds
      to execute it;
@@ -208,20 +216,20 @@ Consequences worth knowing:
   settlement, since by then the trade has already happened and refusing it would
   only strand the batch.
 
-**Known issues.**
+**Fixed 2026-09-13: one strategy could stall batching.** A batch used to take its
+token pair from whichever intent was queued first. One small intent on another
+pair its mandate allowed could therefore either stall every batch, when its pair
+had too few contributors (the refusal left the queue unchanged, so every later
+attempt refused the same way), or, when it was dust, internalise and clear the
+entire queue, silently discarding every other pair's intents. `close_batch` now
+names the pair, other pairs are never touched, and a manager can cancel a queued
+intent. `TestAnIntentOnAnotherPairCannotBlockBatching` and
+`TestClosingAPairThatInternalisesKeepsOtherPairsQueued` cover both cases, and were
+confirmed to fail against the old behaviour.
 
-- **One token pair per batch, and it can be blocked.** A batch takes its pair from
-  the first queued intent and excludes intents on any other pair. If the intents
-  on that first pair come from fewer than `MinContributors` strategies,
-  `close_batch` is refused and the queue is left as it was — so the same intent
-  stays first, and every later attempt fails the same way. There is no command to
-  cancel an intent, so one strategy can stall batching for the whole vault by
-  queuing a small intent on another pair its mandate allows. Reproduced on
-  2026-09-13; not yet fixed.
-- **Dropped intents are not reported.** When a batch closes, the intents it
-  excluded — on another pair, or with a limit the reference price does not
-  satisfy — are discarded, and their authors get no receipt. They see only that
-  no fill arrived.
+**Known issue: dropped intents are not reported.** When a pair closes, any of its
+intents whose limit the reference price does not satisfy are discarded, and their
+authors get no receipt. They see only that no fill arrived.
 
 ### 3.5 Custody and withdrawals
 
@@ -328,7 +336,7 @@ Listed so that nothing above reads as a promise the code already keeps.
 | Halting a strategy | The engine refuses intents and allocations for a halted strategy, but nothing sets the flag yet |
 | PureFi compliance check on deposits | Not started |
 | Batches on a schedule | Not planned as such: the enclave has no clock, so batches close on the operator's request |
-| More than one token pair per batch | Not started, and the current behaviour can block batching (§3.4) |
+| Netting several pairs in one request | Not planned: each batch nets one pair, and the operator closes pairs one request at a time, because the trigger executes one order per state update (§3.2) |
 | Protocol, performance or management fees, and the ZEN staking share | Not started (§4) |
 | Strategist SDK | Stub (§3.1) |
 | Private execution venues (ZENDEX, DarkSwap) | Not live yet; the live run trades against a fixed-price test router |

@@ -140,6 +140,12 @@ type PayloadInstructions struct {
 	Intent           *IntentCmd           `json:"intent,omitempty"`
 	CloseBatch       *CloseBatchCmd       `json:"closeBatch,omitempty"`
 	Withdraw         *WithdrawCmd         `json:"withdraw,omitempty"`
+	CancelIntent     *CancelIntentCmd     `json:"cancelIntent,omitempty"`
+}
+
+// CancelIntentCmd removes one of the sender's own queued intents.
+type CancelIntentCmd struct {
+	IntentID string `json:"intentId"`
 }
 
 // WithdrawCmd pays idle balance out to a wallet.
@@ -184,6 +190,16 @@ type IntentCmd struct {
 }
 
 type CloseBatchCmd struct {
+	// Base names the pair being closed, against the vault's quote token. Only
+	// intents on this pair are netted; intents on every other pair stay queued,
+	// untouched.
+	//
+	// The pair is named explicitly because a batch produces one order, and the
+	// trigger executes one order per state update, so pairs are closed one request
+	// at a time. Choosing the pair implicitly — from whichever intent was queued
+	// first — let a single intent on another pair stall batching or drop the queue.
+	Base string `json:"base"`
+
 	// RefPrice is the reference price the batch is netted at. The enclave
 	// cannot fetch a price, so it is supplied with the request; the per-intent
 	// limit prices and the trigger's on-chain bound are what stop a bad one
@@ -323,6 +339,8 @@ func ProcessRequest(sender *types.Address, requestType int32, payloadJSON, state
 		return handleCloseBatch(req, instr.CloseBatch)
 	case "withdraw":
 		return handleWithdraw(req, instr.Withdraw)
+	case "cancel_intent":
+		return handleCancelIntent(req, instr.CancelIntent)
 	default:
 		return malformed("process: %v: %q", ErrUnknownCommand, instr.Command)
 	}
@@ -595,8 +613,25 @@ func handleSubmitIntent(r *commandRequest, cmd *IntentCmd) types.ProcessResult {
 	return r.accept(map[string]string{"intentId": accepted.ID}, nil, nil, nil)
 }
 
-// handleCloseBatch nets the pending intents and, if anything is left over,
-// sends exactly one order to market.
+// handleCancelIntent removes one of the sender's own queued intents.
+//
+// Refusals are private, like every other rule-based refusal, and an unknown
+// intent is refused with the same reason as someone else's.
+func handleCancelIntent(r *commandRequest, cmd *CancelIntentCmd) types.ProcessResult {
+	if cmd == nil || cmd.IntentID == "" {
+		return malformed("cancel_intent: missing parameters")
+	}
+	if err := r.st.CancelIntent(r.sender, cmd.IntentID); err != nil {
+		return r.reject(err)
+	}
+	return r.accept(nil, nil, nil, nil)
+}
+
+// handleCloseBatch nets the queued intents on one pair and, if anything is left
+// over, sends exactly one order to market.
+//
+// Intents on other pairs are never touched: they stay queued, in order, for a
+// close of their own pair. That is what stops one pair from blocking another.
 //
 // Every refusal here is private. That includes the k-anonymity guard declining to
 // release a batch: publishing that reason would tell everyone fewer than k
@@ -606,17 +641,24 @@ func handleSubmitIntent(r *commandRequest, cmd *IntentCmd) types.ProcessResult {
 func handleCloseBatch(r *commandRequest, cmd *CloseBatchCmd) types.ProcessResult {
 	st := r.st
 
-	if cmd == nil || cmd.RefPrice == nil {
+	if cmd == nil || cmd.RefPrice == nil || cmd.Base == "" {
 		return malformed("close_batch: missing parameters")
+	}
+	// The operator chose this, and it says nothing about confidential state.
+	base, err := types.HexToAddress(cmd.Base)
+	if err != nil {
+		return malformed("close_batch: bad base: %v", err)
 	}
 	if st.Operator != "" && st.Operator != r.sender.Hex() {
 		return r.reject(ErrNotOperator)
 	}
-	if len(st.Pending) == 0 {
+
+	onPair, others := st.splitPendingByPair(base, st.QuoteToken)
+	if len(onPair) == 0 {
 		return r.reject(ErrNoPendingIntents)
 	}
 
-	plan, err := NetBatch(st.Pending, *cmd.RefPrice, st.Config)
+	plan, err := NetBatch(onPair, *cmd.RefPrice, st.Config)
 	if err != nil {
 		return r.reject(err)
 	}
@@ -625,10 +667,11 @@ func handleCloseBatch(r *commandRequest, cmd *CloseBatchCmd) types.ProcessResult
 	batchID := batchIDFromNonce(st.BatchNonce)
 	key := hex.EncodeToString(batchID[:])
 
-	// Intents that made it into the batch are consumed; anything excluded is
-	// dropped rather than silently carried forward into a later batch at a
-	// price its author never agreed to.
-	st.Pending = nil
+	// This pair's intents are consumed: those included go into the batch, and any
+	// whose limit the reference price does not satisfy are dropped rather than
+	// carried forward indefinitely, with no expiry, into later batches. Every other
+	// pair's intents stay queued.
+	st.Pending = others
 
 	// A fully internalised batch never reaches the market, so it settles
 	// immediately and no order is published.
