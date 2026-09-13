@@ -48,7 +48,8 @@ func (m *Mandate) Allows(token types.Address) bool {
 
 // Strategy is one trading strategy inside the pool. Its balances and share
 // count are confidential: they exist only inside the enclave, and depositors
-// learn only the attested NAV.
+// learn only what their own allocations and redemptions are worth. NAV is not
+// published.
 type Strategy struct {
 	ID      string        `json:"id"`
 	Manager types.Address `json:"manager"`

@@ -3,11 +3,15 @@
 **Private agentic trading vaults on Horizen.**
 
 Strategists — AI agents, quant bots, or rules-based systems — send encrypted trade
-intents into a confidential vault engine. The engine holds each strategy's positions
-and risk limits privately, nets and batches intents across strategies, executes the
-combined flow through a single pooled custody contract, and publishes an attested,
-verifiable performance record per strategy. Depositors get a track record they can
-trust without ever seeing a position.
+intents into a confidential vault engine running in a Vela enclave. The engine
+holds each strategy's positions and risk limits privately, nets intents across
+strategies, and sends only the combined remainder to market through a single
+trigger contract. An observer sees one pooled order and cannot tell which
+strategies produced it.
+
+Not yet built: a published, attested performance record per strategy, which is
+what would let depositors judge a strategy they cannot see into. See
+[what is not built](#not-built-yet).
 
 Built for Horizen's [Builder Ecosystem Fund Season 2](https://horizen.io/builder-fund/),
 RFP 1: Private Agentic Trading Vaults.
@@ -41,8 +45,9 @@ exporting `deploy`, `load_module`, `deposit`, `process_request` and
 Both sides run their own suites — 129 Go tests, 15 Solidity — and a shared
 fixture holds them to the same wire format (see below).
 
-What is not yet done: the strategist SDK, a public testnet deployment, and real
-Nitro hardware (the local stack emulates the enclave).
+What is not yet done: a public testnet deployment, real Nitro hardware (the local
+stack emulates the enclave), and the features listed under
+[Not built yet](#not-built-yet).
 
 ## Live run
 
@@ -118,26 +123,50 @@ funds had moved.
 ## Why
 
 Public vaults leak their edge — strategies get copied, entries get front-run, and
-size invites adversarial trading. Legate keeps the *strategy* and *positions* private
-while keeping the *result* provably honest.
+size invites adversarial trading. Legate keeps the *strategy* and *positions*
+private. Making the *result* verifiable to depositors is the part of the design
+still to build.
 
 ## How it works (short version)
 
 1. A strategist runs their model off-chain. Nobody, including Legate, sees it.
-2. The strategist's client signs an intent (asset, direction, size, constraints) and
-   encrypts it to the vault engine's TEE key.
-3. The engine — a WASM app running inside a Vela confidential-compute enclave —
-   decrypts the intent, checks it against that strategy's mandate (allowed assets,
-   max size, drawdown stop), and updates encrypted internal state.
-4. On each execution epoch, the engine nets intents across all active strategies and
-   submits **one combined order** to Horizen execution venues (ZENDEX / DarkSwap /
-   an AMM) through its trigger contract.
-5. The engine attests an updated NAV per strategy and per depositor, posted on-chain
-   as a signed state root. Auditors can request a deanonymization report through
-   Vela's Authority Service; nobody else can.
+2. Their client encrypts an intent — strategy, token, side, size and a limit price —
+   to the enclave's key, pads it to a fixed size, and submits it as a Vela request.
+3. The engine, a WASM app inside a Vela enclave, checks the intent against the
+   strategy's mandate (allowed tokens, maximum order size, maximum position) and
+   whether the strategy can afford it, then queues it. A refusal is private: only
+   the strategist learns why.
+4. When the operator closes a batch, the engine nets the queued intents. If
+   anything is left over, it hands **one combined order** to its trigger contract,
+   which executes it against a venue. The fill comes back into the enclave, and
+   every participant settles at one clearing price.
+5. Depositors back strategies privately, and exit by redeeming shares and
+   withdrawing. An authorised auditor can request a report of strategy balances
+   through Vela's Authority Service; nobody else can see them.
 
 Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 Threat model and known leaks: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
+
+### Not built yet
+
+The original design promised more than the code does today. Not built:
+
+- A published, attested NAV or performance record per strategy.
+- A drawdown stop, or any way to halt a strategy. The engine refuses intents from a
+  halted strategy, but nothing sets that flag.
+- A PureFi compliance check on deposits.
+- Batches on a schedule. The enclave has no clock, so batches close when the
+  operator asks.
+- More than one token pair per batch. The current behaviour has a known issue that
+  lets one strategy block batching
+  ([ARCHITECTURE.md §3.4](docs/ARCHITECTURE.md#34-netting-and-settlement)).
+- Fees, including the ZEN staking share.
+- The strategist SDK.
+- Private venues. ZENDEX and DarkSwap are not live, and the live run trades against
+  a fixed-price test router.
+
+The full list, with detail, is in
+[ARCHITECTURE.md §6](docs/ARCHITECTURE.md#6-in-the-original-design-not-built).
 
 ### The netting property, concretely
 
@@ -160,10 +189,11 @@ Two guards keep the property honest:
 ## Repo layout
 
 ```
-contracts/    Solidity: LegateTrigger (extends Vela AbstractTrigger), PureFi gate
+contracts/    Solidity: LegateTrigger (extends Vela's AbstractTrigger), test mocks,
+              and the live-run script
 vela-app/     Go/WASM: the confidential vault engine (runs inside Vela)
-sdk/          TypeScript client: strategist intent signing + depositor UI hooks
-docs/         Architecture, threat model, roadmap
+sdk/          TypeScript strategist client (stub)
+docs/         Architecture, threat model, roadmap, toolchain
 ```
 
 ## Development
@@ -181,7 +211,7 @@ stack locally needs Docker.
 ## Team
 
 Built by [Kazam1271](https://github.com/Kazam1271). Prior work: [Velo](https://veloexchange.org)
-(privacy-adjacent Hedera DEX, Thrive Hedera grantee), [RoboNado](https://github.com/Kazam1271/RoboNado)
+(Hedera DEX, funded through Thrive's Hedera Launch Program), [RoboNado](https://github.com/Kazam1271/RoboNado)
 (EIP-712 trading automation).
 
 ## License

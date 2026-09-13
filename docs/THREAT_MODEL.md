@@ -11,9 +11,9 @@ expect it to be picked apart on the Horizen technical call.
 |---|---|---|
 | Strategy logic / model | Everyone, including Legate operators | Nobody. Never leaves the strategist's own machine. |
 | Live per-strategy positions | Public chain observers, other strategists, depositors of other strategies | The enclave only. Auditors, via Vela's Authority Service, with authorization. |
-| Which depositor backs which strategy | Public chain observers | The enclave only (custody contract sees pooled deposits, not per-strategy allocation) |
-| Per-strategy NAV / performance | — (this is deliberately public) | Depositors, publicly, as an attestation |
-| Pooled TVL, total volume | — (deliberately public) | Everyone |
+| Which depositor backs which strategy | Public chain observers | The enclave only (`ProcessorEndpoint` sees pooled deposits, not per-strategy allocation) |
+| Per-strategy NAV / performance | Everyone outside the enclave, for now | The enclave only; an auditor could derive it from a report. **Planned** to be published as an attestation so depositors can judge a strategy — not built |
+| Pooled custody (TVL), and the residual volume sent to market | — (deliberately public) | Everyone. Volume crossed inside the enclave is not public |
 
 These guarantees cover payload *contents*. Request metadata — length, sender,
 timing, success or failure — is a separate surface, covered in §4.4.
@@ -41,12 +41,16 @@ Being upfront about these, not hiding them:
    memory encryption and attestation being sound. This is Vela's trust base, not
    something Legate adds or removes. Users should understand they're trusting AWS
    hardware security, not a zero-knowledge proof.
-2. **Vela operator trust (bounded).** The enclave's code is what enforces mandates
-   and computes NAV. If Vela's infrastructure or the enclave image is compromised,
-   the *attestation* — not the funds — is at risk (funds sit in the on-chain
-   custody contract, which only acts on cryptographically verified attestations).
-   We still depend on Vela's attestation verification being correctly implemented
-   on both sides.
+2. **Enclave integrity protects funds, not just secrets.** `ProcessorEndpoint`
+   pays out whatever withdrawals a correctly signed state update contains. So if
+   the enclave's keys or the app's code were compromised, funds would be at risk as
+   well as confidentiality. _Corrected 2026-09-13: this previously said a
+   compromise put "the attestation — not the funds" at risk, which is wrong._ What
+   stands in the way is Vela's attestation: the endpoint applies an update only if
+   `TeeAuthenticator` accepts its signature, and Vela ties that key to attested
+   enclave measurements, including the WASM fingerprint at deploy. Legate's own
+   operator cannot direct funds anywhere: it can close batches and supply the
+   reference price, and item 4 covers what a bad price can do.
 3. **Compliance is deanonymization, not immunity.** Vela's Authority Service can
    produce full deanonymization reports for authorized auditors. Legate is
    "private from other users," not "private from regulators." This needs to be
@@ -60,6 +64,13 @@ Being upfront about these, not hiding them:
    therefore stall a batch or skip intents, but cannot fill anyone past their own
    limit. Sourcing prices from an oracle such as Stork is future work, and would
    narrow but not remove this trust.
+5. **Router trust.** The trigger's router is fixed when the trigger is deployed,
+   and whoever deploys it is trusted to choose an honest one: a malicious router
+   could keep the funds approved to it. The trigger also records the base amount it
+   asked for rather than measuring what arrived. An honest exact-output router makes
+   those equal, but a misbehaving router, or a base token that takes a fee on
+   transfer, would have the enclave credit base that never arrived. Measuring the
+   trigger's balances around the swap would remove that second part.
 
 ## 4. Where it still leaks (the honest gaps)
 
@@ -67,7 +78,7 @@ This is the section reviewers will push hardest on.
 
 ### 4.1 Pool composition leaks with few strategies
 If a pool has 1–2 strategies, or one strategy dominates the netted flow, an
-observer watching the custody contract's on-chain trades can reconstruct that
+observer watching the trigger's on-chain trades can reconstruct that
 strategy's position almost as if it were public. **Netting only hides you inside
 a crowd.**
 
@@ -91,10 +102,10 @@ Mitigations (to prove in M1, not just claim):
   is both uneconomic and unusually identifying, so it is internalised instead.
 
 ### 4.2 Deposit and withdrawal edges are visible
-The custody contract is public. Deposit and withdrawal amounts and timing are
+`ProcessorEndpoint` is public. Deposit and withdrawal amounts and timing are
 visible on-chain, even though the *destination* (which strategy) is not. A
-sophisticated observer correlating deposit timing with subsequent NAV shifts could
-make probabilistic inferences.
+sophisticated observer correlating deposit timing with the batch orders that follow
+could make probabilistic inferences.
 
 Withdrawal is implemented, and it is exactly as visible as this implies: the
 Withdrawal event names the recipient, token and amount. A depositor may withdraw to
