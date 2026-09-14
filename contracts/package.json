@@ -14,6 +14,7 @@
   "dependencies": {
     "@horizen/vela-common-ts": "^0.2.0",
     "@openzeppelin/contracts": "^5.0.0",
-    "vela": "file:lib/vela/contracts"
+    "vela": "file:lib/vela/contracts",
+    "@legate/sdk": "file:../sdk"
   }
 }

@@ -68,8 +68,9 @@ The system as built:
 ### 3.1 Client SDK (`sdk/`, `@legate/sdk`)
 
 _Implemented, tested._ TypeScript, wrapping Vela's `@horizen/vela-common-ts`
-client. `contracts/scripts/e2e-local.mjs` still exists as the lower-level
-reference, built directly on `@horizen/vela-common-ts` before the SDK did.
+client. `contracts/scripts/e2e-local.mjs` (see the README's "Live run" section)
+is built on it, and is the SDK's own proof against a real enclave rather than
+only Go's in-process tests.
 
 - One client class (`LegateClient`) serves every role — strategy managers,
   depositors, the operator — since the enclave decides who may do what, not the

@@ -54,18 +54,21 @@ stack emulates the enclave), and the features listed under
 
 ## Live run
 
-`contracts/scripts/e2e-local.mjs` runs Legate against a real Vela stack: the WASM
-app executes in Vela's executor, payloads are encrypted to the enclave's key, the
-trigger swaps on chain, and settlement returns through a genuine `TRUSTPROCESS`
-request. Nothing is mocked except the trading venue.
+`contracts/scripts/e2e-local.mjs` runs Legate against a real Vela stack, driven
+through `@legate/sdk`: the WASM app executes in Vela's executor, payloads are
+encrypted to the enclave's key, the trigger swaps on chain, and settlement
+returns through a genuine `TRUSTPROCESS` request. Nothing is mocked except the
+trading venue. This is also the SDK's own proof against a live enclave, not only
+Go's in-process tests.
 
 ```bash
 # 1. Start Vela's local environment (from the vela-starterkit repository)
 cd vela-starterkit/dockerfiles && cp .env.dev .env && docker compose up -d
 
-# 2. Build the app and contracts
+# 2. Build the app, the SDK, and the contracts
 cd legate/vela-app && ./build.sh production_build
-cd ../contracts && npx hardhat compile
+cd ../sdk && npm install && npm run build
+cd ../contracts && npm install && npx hardhat compile
 
 # 3. Run it
 node scripts/e2e-local.mjs
