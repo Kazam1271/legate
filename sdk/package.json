@@ -1,20 +1,37 @@
 {
   "name": "@legate/sdk",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
-  "description": "Strategist intent signing + depositor client for Legate",
+  "description": "Client for Legate's confidential vault engine on Vela: strategists, depositors and the batch operator",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsc -w -p tsconfig.json"
+    "test": "tsc -p tsconfig.json && node --test \"test/*.test.mjs\"",
+    "fixtures": "tsc -p tsconfig.json && node scripts/write-fixtures.mjs"
   },
   "dependencies": {
-    "viem": "^2.21.0"
+    "@horizen/vela-common-ts": "^0.2.0"
+  },
+  "peerDependencies": {
+    "ethers": "^6.13.0"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
-    "@types/node": "^22.7.0"
+    "@types/node": "^22.7.0",
+    "ethers": "^6.17.0",
+    "typescript": "^5.6.0"
   }
 }

@@ -1,15 +1,20 @@
 /**
- * Legate SDK — strategist intent signing + depositor client.
+ * Legate SDK — a client for Legate's confidential vault engine on Vela.
  *
- * Status: stub. Not yet implemented — see ../../docs/ARCHITECTURE.md §3.1.
- *
- * Planned surface:
- *   - generateIntentKeypair(): P-521 keypair for encrypting intents to the
- *     Vela enclave (separate from the strategist's secp256k1 tx-signing key).
- *   - signIntent(intent, secp256k1Key): signs an intent for on-chain submission.
- *   - encryptIntent(intent, enclavePublicKey): encrypts the intent payload.
- *   - submitIntent(...): submits the encrypted, signed intent to
- *     ProcessorEndpoint on Horizen L3.
+ * See the README in this package for usage.
  */
 
-export const SDK_VERSION = "0.0.1";
+export { LegateClient } from './client.js';
+export type { BlockRange, CommandOutcome, LegateConfig, RequestRef, SubmitOptions } from './client.js';
+
+export * as commands from './commands.js';
+export type { Hex, LegateCommand, Mandate, Prices } from './commands.js';
+
+export { decodeOrder, parseEvent } from './events.js';
+export type { DepositEvent, Fill, FillEvent, LegateEvent, PublicOrder, Receipt } from './events.js';
+
+export { padPayload } from './padding.js';
+export { DEFAULT_MAX_FEE, PADDED_PAYLOAD_SIZE, PRICE_SCALE, Side, SUBTYPE } from './constants.js';
+export { LegateTimeoutError, LegateValidationError, PayloadTooLargeError, RequestFailedError } from './errors.js';
+
+export const SDK_VERSION = '0.1.0';

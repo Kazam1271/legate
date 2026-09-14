@@ -65,21 +65,42 @@ The system as built:
 
 ## 3. Components in detail
 
-### 3.1 Strategist client (`sdk/`)
+### 3.1 Client SDK (`sdk/`, `@legate/sdk`)
 
-_Not implemented: `sdk/` is a stub. The live-run script,
-`contracts/scripts/e2e-local.mjs`, does this work today and is the natural
-starting point._
+_Implemented, tested._ TypeScript, wrapping Vela's `@horizen/vela-common-ts`
+client. `contracts/scripts/e2e-local.mjs` still exists as the lower-level
+reference, built directly on `@horizen/vela-common-ts` before the SDK did.
 
-- TypeScript. Holds two keys per Vela's model: a **secp256k1** key that signs the
-  on-chain transaction, and a **P-521** key used to encrypt requests to the
-  enclave.
-- An intent is: strategy ID, base token, side, amount in base units, and a limit
-  price, which is required for buys. There is no validity window and no size
-  formula. The engine enforces the strategy's mandate itself, so a compromised or
-  buggy client cannot exceed it.
-- Every request is padded to a fixed size before encryption, and the enclave
-  refuses any other length (THREAT_MODEL.md §4.4).
+- One client class (`LegateClient`) serves every role — strategy managers,
+  depositors, the operator — since the enclave decides who may do what, not the
+  client.
+- Key handling is Vela's own: `@horizen/vela-common-ts` derives both keys the
+  model requires — the **secp256k1** key that signs the on-chain transaction, and
+  the **P-521** key used to encrypt requests to the enclave — from the connected
+  signer, and `registerKey()` associates the P-521 key on first use.
+- Commands are built, not written by hand (`commands.ts`), and validated locally
+  before anything is sent: a buy without a limit price, a negative or
+  out-of-range amount, an empty strategy ID, and similar mistakes are refused for
+  free rather than costing a request fee. An intent is: strategy ID, base token,
+  side, amount in base units, and a limit price, required for buys. There is no
+  validity window and no size formula — the engine enforces the strategy's
+  mandate itself, so a compromised or buggy client cannot exceed it.
+- Every command is padded to a fixed size before encryption, and the enclave
+  refuses any other length (THREAT_MODEL.md §4.4). `submit()` does this
+  automatically; `padPayload()` is exposed directly for anything encrypting a
+  command outside the client.
+- A rejection by the rules is not thrown as an error: `submit()` returns
+  `{status: 'rejected', reason}`, decrypted from the sender's own private
+  receipt, distinct from `RequestFailedError` for a request the enclave refused
+  publicly on chain.
+- The Go structs and the TypeScript builders implement the same wire format
+  independently, in different languages. A shared fixture
+  (`sdk/test/fixtures/commands.json`) holds them to it: the SDK's test suite
+  asserts the builders still produce exactly that JSON, and
+  `vela-app/app/sdk_fixture_test.go` decodes it with unknown fields disallowed
+  and checks every value, including one end-to-end run through the real
+  handlers. A mismatch here would otherwise surface only against a live enclave,
+  as a command that silently did something other than intended.
 
 ### 3.2 Vault engine (`vela-app/`)
 
@@ -338,5 +359,4 @@ Listed so that nothing above reads as a promise the code already keeps.
 | Batches on a schedule | Not planned as such: the enclave has no clock, so batches close on the operator's request |
 | Netting several pairs in one request | Not planned: each batch nets one pair, and the operator closes pairs one request at a time, because the trigger executes one order per state update (§3.2) |
 | Protocol, performance or management fees, and the ZEN staking share | Not started (§4) |
-| Strategist SDK | Stub (§3.1) |
 | Private execution venues (ZENDEX, DarkSwap) | Not live yet; the live run trades against a fixed-price test router |

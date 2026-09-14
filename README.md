@@ -35,15 +35,18 @@ the milestone plan.
 | `vela-app/app/handlers.go` — command dispatch, batch lifecycle | Implemented, tested |
 | `vela-app/main.go` — Vela WASM exports | Implemented |
 | `contracts/LegateTrigger.sol` — execution trigger | Implemented, tested |
-| `sdk/` — strategist intent client | Stub |
+| `sdk/` — TypeScript client (`@legate/sdk`) | Implemented, tested |
 
 `./build.sh build` produces `legate_app.wasm`, a complete Vela guest module
 exporting `deploy`, `load_module`, `deposit`, `process_request` and
 `trusted_request`. Toolchain setup is in [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md);
 `./build.sh doctor` checks it.
 
-Both sides run their own suites — 137 Go tests, 15 Solidity — and a shared
-fixture holds them to the same wire format (see below).
+Three suites — 148 Go tests, 15 Solidity, 31 SDK — and two shared fixtures hold
+them to the same wire format: `contracts/test/fixtures/abi-vectors.json` for the
+order/fill codec between Go and the trigger contract, and
+`sdk/test/fixtures/commands.json` for the command shapes between Go and the SDK
+(see [sdk/README.md](sdk/README.md)).
 
 What is not yet done: a public testnet deployment, real Nitro hardware (the local
 stack emulates the enclave), and the features listed under
@@ -193,7 +196,7 @@ Two guards keep the property honest:
 contracts/    Solidity: LegateTrigger (extends Vela's AbstractTrigger), test mocks,
               and the live-run script
 vela-app/     Go/WASM: the confidential vault engine (runs inside Vela)
-sdk/          TypeScript strategist client (stub)
+sdk/          @legate/sdk — TypeScript client (strategists, depositors, operator)
 docs/         Architecture, threat model, roadmap, toolchain
 ```
 

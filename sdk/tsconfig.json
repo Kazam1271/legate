@@ -1,8 +1,13 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    // Bundler resolution rather than NodeNext: @horizen/vela-common-ts ships type
+    // declarations whose internal imports have no file extensions, which NodeNext
+    // cannot follow, so every export would appear missing. The emitted JavaScript
+    // is still plain ESM with explicit .js extensions, and runs under Node as-is.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"],
     "declaration": true,
     "outDir": "dist",
     "rootDir": "src",
