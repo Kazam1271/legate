@@ -36,6 +36,7 @@ the milestone plan.
 | `vela-app/main.go` — Vela WASM exports | Implemented |
 | `contracts/LegateTrigger.sol` — execution trigger | Implemented, tested |
 | `sdk/` — TypeScript client (`@legate/sdk`) | Implemented, tested |
+| `web/` — interface (Next.js) | Implemented, preview data |
 
 `./build.sh build` produces `legate_app.wasm`, a complete Vela guest module
 exporting `deploy`, `load_module`, `deposit`, `process_request` and
@@ -200,6 +201,7 @@ contracts/    Solidity: LegateTrigger (extends Vela's AbstractTrigger), test moc
               and the live-run script
 vela-app/     Go/WASM: the confidential vault engine (runs inside Vela)
 sdk/          @legate/sdk — TypeScript client (strategists, depositors, operator)
+web/          Next.js interface: vault explorer, batch transparency, strategist console
 docs/         Architecture, threat model, roadmap, toolchain
 ```
 
