@@ -16,6 +16,13 @@ what would let depositors judge a strategy they cannot see into. See
 Built for Horizen's [Builder Ecosystem Fund Season 2](https://horizen.io/builder-fund/),
 RFP 1: Private Agentic Trading Vaults.
 
+**Interface: [legate-eight.vercel.app](https://legate-eight.vercel.app)** — the
+vault explorer, batch transparency feed and strategist console, running on
+representative data. [`/batches`](https://legate-eight.vercel.app/batches) is
+the one to look at first: it shows, per batch, how much volume was matched
+inside the enclave against the single order that actually reached the market.
+Not wired to a chain or an enclave; the engine below is.
+
 ## Status
 
 **Running end-to-end on a local Vela stack.** The engine, the WASM app and the
@@ -36,7 +43,7 @@ the milestone plan.
 | `vela-app/main.go` — Vela WASM exports | Implemented |
 | `contracts/LegateTrigger.sol` — execution trigger | Implemented, tested |
 | `sdk/` — TypeScript client (`@legate/sdk`) | Implemented, tested |
-| `web/` — interface (Next.js) | Implemented, preview data |
+| `web/` — interface (Next.js), [live](https://legate-eight.vercel.app) | Implemented, preview data |
 
 `./build.sh build` produces `legate_app.wasm`, a complete Vela guest module
 exporting `deploy`, `load_module`, `deposit`, `process_request` and

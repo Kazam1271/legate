@@ -4,6 +4,9 @@ The Legate interface: five screens covering the two audiences the protocol has
 to serve at once — strategists, who need privacy, and depositors, who need
 enough signal to trust a strategy they cannot see into.
 
+Live at **[legate-eight.vercel.app](https://legate-eight.vercel.app)**, deployed
+from `main` on every push that touches this directory.
+
 ```bash
 npm install
 npm run dev     # http://localhost:3000
