@@ -1,10 +1,11 @@
 import Link from 'next/link';
 
+import { CountUp } from '@/components/count-up';
 import { HeroBrand, SealBackdrop } from '@/components/logo';
 import { NettingDiagram } from '@/components/netting-diagram';
 import { Badge, Card, Eyebrow, Row, ShieldIcon, Stat } from '@/components/ui';
 import { PROTOCOL_STATS } from '@/lib/data';
-import { num, ratioPct, usdCompact, utcTime } from '@/lib/format';
+import { ratioPct, utcTime } from '@/lib/format';
 
 const STEPS = [
   {
@@ -110,15 +111,24 @@ export default function OverviewPage() {
       {/* Headline numbers. */}
       <section className="mx-auto max-w-[1240px] px-5 py-16 sm:px-8">
         <div className="grid gap-10 border-b border-line pb-14 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Strategies live" value={num(PROTOCOL_STATS.strategiesLive, 0)} />
-          <Stat label="Value in vaults" value={usdCompact(PROTOCOL_STATS.valueInVaults)} />
+          <Stat
+            label="Strategies live"
+            value={<CountUp value={PROTOCOL_STATS.strategiesLive} format="int" />}
+          />
+          <Stat
+            label="Value in vaults"
+            value={<CountUp value={PROTOCOL_STATS.valueInVaults} format="usdCompact" />}
+          />
           <Stat
             label="Volume netted"
-            value={ratioPct(PROTOCOL_STATS.nettingRatio)}
+            value={<CountUp value={PROTOCOL_STATS.nettingRatio} format="ratioPct" />}
             hint="Matched inside the enclave, never seen by the market"
             accent
           />
-          <Stat label="Batches settled" value={num(PROTOCOL_STATS.batchesSettled, 0)} />
+          <Stat
+            label="Batches settled"
+            value={<CountUp value={PROTOCOL_STATS.batchesSettled} format="int" />}
+          />
         </div>
       </section>
 
