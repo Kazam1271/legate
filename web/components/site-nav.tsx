@@ -23,13 +23,18 @@ export function SiteNav() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-canvas/85 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-[1240px] items-center gap-6 px-5 sm:px-8">
-        <Link href="/" className="flex shrink-0 items-center gap-2.5" aria-label="Legate home">
-          <LegateMark size={30} animated compact />
-          <span className="text-[15px] font-semibold tracking-[0.22em]">LEGATE</span>
-        </Link>
+      <div className="mx-auto flex h-16 max-w-[1240px] items-center gap-4 px-5 sm:px-8">
+        {/* Three equal-growing regions — left and right both flex-1 — is what
+            centres the nav on the bar itself rather than on the leftover space
+            after the logo, which is what `ml-4 flex-1` used to do. */}
+        <div className="flex flex-1 items-center">
+          <Link href="/" className="flex shrink-0 items-center gap-2.5" aria-label="Legate home">
+            <LegateMark size={30} animated compact />
+            <span className="text-[15px] font-semibold tracking-[0.22em]">LEGATE</span>
+          </Link>
+        </div>
 
-        <nav className="ml-4 hidden flex-1 items-center gap-1 md:flex" aria-label="Primary">
+        <nav className="hidden shrink-0 items-center gap-1 md:flex" aria-label="Primary">
           {LINKS.map((link) => (
             <Link
               key={link.href}
@@ -48,7 +53,7 @@ export function SiteNav() {
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="flex flex-1 items-center justify-end gap-3">
           <span className="hidden items-center gap-2 font-mono text-xs text-muted lg:flex">
             <span className="size-1.5 rounded-full bg-positive" aria-hidden />
             Vela mainnet
