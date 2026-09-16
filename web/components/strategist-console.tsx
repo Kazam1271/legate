@@ -3,9 +3,10 @@
 import { useMemo, useState } from 'react';
 
 import { NextBatch } from '@/components/next-batch';
+import { Reveal } from '@/components/reveal';
 import { Badge, Card, LockIcon, Row, SideTag, TokenPill } from '@/components/ui';
 import type { Fill, QueuedIntent, Side, Strategy } from '@/lib/data';
-import { amount, num, shortAddress, usd, utcTime } from '@/lib/format';
+import { amount, num, shortAddress, staggerMs, usd, utcTime } from '@/lib/format';
 
 interface ConsoleProps {
   strategies: Strategy[];
@@ -293,6 +294,7 @@ export function StrategistConsole({ strategies, fills, queued }: ConsoleProps) {
           </div>
 
           <aside className="space-y-6">
+            <Reveal delayMs={staggerMs(0)}>
             <Card className="p-5">
               <h2 className="text-sm font-semibold">Mandate</h2>
               <p className="mt-2 text-[12px] leading-relaxed text-muted">
@@ -319,7 +321,9 @@ export function StrategistConsole({ strategies, fills, queued }: ConsoleProps) {
                 />
               </div>
             </Card>
+            </Reveal>
 
+            <Reveal delayMs={staggerMs(1)}>
             <Card className="p-5">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-sm font-semibold">Queued</h2>
@@ -361,6 +365,7 @@ export function StrategistConsole({ strategies, fills, queued }: ConsoleProps) {
                 netting.
               </p>
             </Card>
+            </Reveal>
           </aside>
         </div>
       </div>

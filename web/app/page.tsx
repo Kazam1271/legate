@@ -109,28 +109,32 @@ export default function OverviewPage() {
         </div>
       </section>
 
-      {/* Headline numbers. */}
+      {/* Headline numbers. One reveal for the whole row — the count-up already
+          gives each figure its own motion, so the group only needs a single
+          arrival, not four staggered ones on top of that. */}
       <section className="mx-auto max-w-[1240px] px-5 py-16 sm:px-8">
-        <div className="grid gap-10 border-b border-line pb-14 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat
-            label="Strategies live"
-            value={<CountUp value={PROTOCOL_STATS.strategiesLive} format="int" />}
-          />
-          <Stat
-            label="Value in vaults"
-            value={<CountUp value={PROTOCOL_STATS.valueInVaults} format="usdCompact" />}
-          />
-          <Stat
-            label="Volume netted"
-            value={<CountUp value={PROTOCOL_STATS.nettingRatio} format="ratioPct" />}
-            hint="Matched inside the enclave, never seen by the market"
-            accent
-          />
-          <Stat
-            label="Batches settled"
-            value={<CountUp value={PROTOCOL_STATS.batchesSettled} format="int" />}
-          />
-        </div>
+        <Reveal>
+          <div className="grid gap-10 border-b border-line pb-14 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat
+              label="Strategies live"
+              value={<CountUp value={PROTOCOL_STATS.strategiesLive} format="int" />}
+            />
+            <Stat
+              label="Value in vaults"
+              value={<CountUp value={PROTOCOL_STATS.valueInVaults} format="usdCompact" />}
+            />
+            <Stat
+              label="Volume netted"
+              value={<CountUp value={PROTOCOL_STATS.nettingRatio} format="ratioPct" />}
+              hint="Matched inside the enclave, never seen by the market"
+              accent
+            />
+            <Stat
+              label="Batches settled"
+              value={<CountUp value={PROTOCOL_STATS.batchesSettled} format="int" />}
+            />
+          </div>
+        </Reveal>
       </section>
 
       {/* How it works. */}

@@ -4,9 +4,10 @@ import { notFound } from 'next/navigation';
 
 import { SealBackdrop } from '@/components/logo';
 import { NavChart } from '@/components/nav-chart';
+import { Reveal } from '@/components/reveal';
 import { Badge, Card, Delta, Eyebrow, LockIcon, PrivateBadge, Row, SideTag, TokenPill } from '@/components/ui';
 import { EPOCH, batchesFor, nettingRatio, strategyById, STRATEGIES } from '@/lib/data';
-import { amount, num, pct, ratioPct, shortAddress, usd, usdCompact, utcDate } from '@/lib/format';
+import { amount, num, pct, ratioPct, shortAddress, staggerMs, usd, usdCompact, utcDate } from '@/lib/format';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -138,6 +139,7 @@ export default async function StrategyPage({ params }: PageProps) {
 
         <aside className="space-y-6">
           {/* Mandate: the guarantee that makes a private strategy investable. */}
+          <Reveal delayMs={staggerMs(0)}>
           <Card className="p-5">
             <h2 className="text-sm font-semibold">Mandate</h2>
             <p className="mt-2 text-[12px] leading-relaxed text-muted">
@@ -159,7 +161,9 @@ export default async function StrategyPage({ params }: PageProps) {
               <Row label="max drawdown seen" value={pct(strategy.drawdownPct)} tone="muted" />
             </div>
           </Card>
+          </Reveal>
 
+          <Reveal delayMs={staggerMs(1)}>
           <Card className="p-5">
             <h2 className="text-sm font-semibold">Your position</h2>
 
@@ -196,7 +200,9 @@ export default async function StrategyPage({ params }: PageProps) {
               Which strategy you back stays private — only the deposit&rsquo;s existence is on-chain.
             </p>
           </Card>
+          </Reveal>
 
+          <Reveal delayMs={staggerMs(2)}>
           <Card className="p-5">
             <h2 className="text-sm font-semibold">Vault</h2>
             <div className="mt-4 divide-y divide-line border-t border-line">
@@ -205,6 +211,7 @@ export default async function StrategyPage({ params }: PageProps) {
               <Row label="track record" value={strategy.inceptionDays + ' days'} tone="muted" />
             </div>
           </Card>
+          </Reveal>
         </aside>
       </div>
       </div>

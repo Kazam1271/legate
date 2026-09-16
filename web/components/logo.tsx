@@ -225,9 +225,15 @@ export function SealBackdrop() {
   return (
     <div
       aria-hidden
-      className="legate-backdrop pointer-events-none fixed top-1/2 right-[-380px] z-[-10] hidden -translate-y-1/2 opacity-[0.07] lg:block xl:right-[-440px]"
+      className="legate-backdrop pointer-events-none fixed top-1/2 right-[-150px] z-[-10] -translate-y-1/2 opacity-[0.07] sm:right-[-230px] lg:right-[-380px] xl:right-[-440px]"
     >
-      <LegateMark size={760} className="legate-roll xl:hidden" />
+      {/* Each size shows in exactly one range; the parent's right offset is
+          always -size/2, so precisely half the mark sits past the edge at
+          every breakpoint — the "half wheel" reads the same at every size,
+          not just on desktop. */}
+      <LegateMark size={300} className="legate-roll block sm:hidden" />
+      <LegateMark size={460} className="legate-roll hidden sm:block lg:hidden" />
+      <LegateMark size={760} className="legate-roll hidden lg:block xl:hidden" />
       <LegateMark size={880} className="legate-roll hidden xl:block" />
     </div>
   );

@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
 
 import { BatchFeed } from '@/components/batch-feed';
+import { CountUp } from '@/components/count-up';
 import { SealBackdrop } from '@/components/logo';
+import { Reveal } from '@/components/reveal';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { BATCHES, EPOCH, LAST_24H } from '@/lib/data';
-import { num, ratioPct, usdCompact, utcTime } from '@/lib/format';
+import { staggerMs, utcTime } from '@/lib/format';
 
 export const metadata: Metadata = {
   title: 'Batch transparency',
@@ -29,12 +31,12 @@ export default function BatchesPage() {
       />
 
       <div className="mt-10 grid gap-8 border-b border-line pb-10 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Batches / last 24h" value={num(LAST_24H.batches, 0)} />
-        <Stat label="Average netting" value={ratioPct(LAST_24H.ratio)} accent />
-        <Stat label="Total volume" value={usdCompact(LAST_24H.volume)} />
+        <Stat label="Batches / last 24h" value={<CountUp value={LAST_24H.batches} format="int" />} />
+        <Stat label="Average netting" value={<CountUp value={LAST_24H.ratio} format="ratioPct" />} accent />
+        <Stat label="Total volume" value={<CountUp value={LAST_24H.volume} format="usdCompact" />} />
         <Stat
           label="Never touched market"
-          value={usdCompact(LAST_24H.crossed)}
+          value={<CountUp value={LAST_24H.crossed} format="usdCompact" />}
           hint="Matched strategy-to-strategy inside the enclave"
           accent
         />
@@ -53,22 +55,26 @@ export default function BatchesPage() {
       </Card>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2">
-        <Card className="p-5">
-          <h3 className="text-sm font-semibold">What this page proves</h3>
-          <p className="mt-2 text-[13px] leading-relaxed text-muted">
-            Each row is one settled batch. The gold portion of the bar is the residual — the single
-            pooled order that reached the market. The rest was matched strategy-to-strategy inside
-            the enclave and never existed publicly at all.
-          </p>
-        </Card>
-        <Card className="p-5">
-          <h3 className="text-sm font-semibold">What it still does not reveal</h3>
-          <p className="mt-2 text-[13px] leading-relaxed text-muted">
-            Not which strategies contributed, not their sides, not their sizes. A batch where every
-            intent crossed internally publishes no order at all — it is marked fully private, and
-            the chain records nothing to attribute.
-          </p>
-        </Card>
+        <Reveal delayMs={staggerMs(0)}>
+          <Card className="p-5">
+            <h3 className="text-sm font-semibold">What this page proves</h3>
+            <p className="mt-2 text-[13px] leading-relaxed text-muted">
+              Each row is one settled batch. The gold portion of the bar is the residual — the single
+              pooled order that reached the market. The rest was matched strategy-to-strategy inside
+              the enclave and never existed publicly at all.
+            </p>
+          </Card>
+        </Reveal>
+        <Reveal delayMs={staggerMs(1)}>
+          <Card className="p-5">
+            <h3 className="text-sm font-semibold">What it still does not reveal</h3>
+            <p className="mt-2 text-[13px] leading-relaxed text-muted">
+              Not which strategies contributed, not their sides, not their sizes. A batch where every
+              intent crossed internally publishes no order at all — it is marked fully private, and
+              the chain records nothing to attribute.
+            </p>
+          </Card>
+        </Reveal>
       </div>
       </div>
     </>

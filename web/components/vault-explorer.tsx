@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
+import { Reveal } from '@/components/reveal';
 import { Sparkline } from '@/components/sparkline';
 import { Badge, Card, Delta, LockIcon, PrivateBadge, TokenPill } from '@/components/ui';
 import type { Strategy } from '@/lib/data';
@@ -248,11 +249,17 @@ export function VaultExplorer({ strategies }: { strategies: Strategy[] }) {
         </div>
       </div>
 
-      <ul className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {visible.map((s) => (
-          <StrategyCard key={s.id} strategy={s} onDeposit={() => setDepositing(s)} />
-        ))}
-      </ul>
+      {/* One reveal for the whole grid, not one per card — with sort and
+          filter already free to rearrange these on click, animating each
+          card individually on top of that would be the busy kind of motion,
+          not the premium kind. */}
+      <Reveal className="mt-8">
+        <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {visible.map((s) => (
+            <StrategyCard key={s.id} strategy={s} onDeposit={() => setDepositing(s)} />
+          ))}
+        </ul>
+      </Reveal>
 
       {visible.length === 0 ? (
         <p className="mt-16 text-center text-sm text-faint">No strategy accepts that token yet.</p>
