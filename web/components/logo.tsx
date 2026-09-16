@@ -186,6 +186,29 @@ export function LegateMark({
 }
 
 /**
+ * The seal paired with the wordmark, for the top of the hero — the one place on
+ * the page that earns a proper brand statement rather than the compact nav
+ * mark. Both lines are real HTML text (not baked into the SVG), so they inherit
+ * the site's actual type and stay selectable and readable by screen readers.
+ */
+export function HeroBrand() {
+  return (
+    <div className="flex items-center gap-4">
+      <LegateMark size={52} animated title="Legate" />
+      <div>
+        <p className="font-mono text-lg font-semibold tracking-[0.34em] text-fg">LEGATE</p>
+        <div className="mt-2 flex items-center gap-3">
+          <span className="h-px w-7 bg-line-strong" aria-hidden />
+          <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-faint">
+            Private execution infrastructure
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The seal used as a backdrop: sized past the viewport and anchored so its
  * centre sits on the right edge, leaving only the private half visible. The
  * public half is literally off-screen, which is the joke and also the point.
