@@ -97,3 +97,14 @@ export function clock(totalSeconds: number): string {
   const s = Math.max(0, totalSeconds);
   return pad(Math.floor(s / 60)) + ':' + pad(s % 60);
 }
+
+/**
+ * Staggers a group of Reveal delays without hand-computing them at each call
+ * site. Plain math, no browser API — deliberately NOT in components/reveal.tsx,
+ * since that file is 'use client': a server component may pass a client
+ * component's props, but it can't call a function re-exported from a client
+ * module directly, which is exactly what putting this there would forbid.
+ */
+export function staggerMs(index: number, step = 110, base = 0): number {
+  return base + index * step;
+}

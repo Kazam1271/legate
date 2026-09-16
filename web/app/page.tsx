@@ -3,9 +3,10 @@ import Link from 'next/link';
 import { CountUp } from '@/components/count-up';
 import { HeroBrand, SealBackdrop } from '@/components/logo';
 import { NettingDiagram } from '@/components/netting-diagram';
+import { Reveal } from '@/components/reveal';
 import { Badge, Card, Eyebrow, Row, ShieldIcon, Stat } from '@/components/ui';
 import { PROTOCOL_STATS } from '@/lib/data';
-import { ratioPct, utcTime } from '@/lib/format';
+import { ratioPct, staggerMs, utcTime } from '@/lib/format';
 
 const STEPS = [
   {
@@ -136,30 +137,32 @@ export default function OverviewPage() {
       <section className="mx-auto max-w-[1240px] px-5 pb-8 sm:px-8">
         <Eyebrow>How it works</Eyebrow>
         <div className="mt-8 grid gap-px overflow-hidden rounded-[10px] border border-line bg-line sm:grid-cols-3">
-          {STEPS.map((step) => (
-            <div key={step.n} className="bg-surface p-6">
+          {STEPS.map((step, i) => (
+            <Reveal key={step.n} delayMs={staggerMs(i)} className="bg-surface p-6">
               <p className="font-mono text-xs text-accent">{step.n}</p>
               <h3 className="mt-4 text-[15px] font-semibold leading-snug">{step.title}</h3>
               <p className="mt-3 text-[13px] leading-relaxed text-muted">{step.body}</p>
-            </div>
+            </Reveal>
           ))}
         </div>
 
-        <Card className="mt-10 flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-[15px] font-semibold">See what the chain actually recorded</h3>
-            <p className="mt-1.5 text-[13px] text-muted">
-              Every settled batch, with the private volume that never reached the market beside it.
-            </p>
-          </div>
-          <Link
-            href="/batches"
-            className="inline-flex w-fit items-center gap-2 rounded-lg border border-line-strong px-4 py-2.5 text-sm transition-colors hover:border-accent hover:text-accent"
-          >
-            Batch transparency
-            <span aria-hidden>&rsaquo;</span>
-          </Link>
-        </Card>
+        <Reveal delayMs={staggerMs(STEPS.length)}>
+          <Card className="mt-10 flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-[15px] font-semibold">See what the chain actually recorded</h3>
+              <p className="mt-1.5 text-[13px] text-muted">
+                Every settled batch, with the private volume that never reached the market beside it.
+              </p>
+            </div>
+            <Link
+              href="/batches"
+              className="inline-flex w-fit items-center gap-2 rounded-lg border border-line-strong px-4 py-2.5 text-sm transition-colors hover:border-accent hover:text-accent"
+            >
+              Batch transparency
+              <span aria-hidden>&rsaquo;</span>
+            </Link>
+          </Card>
+        </Reveal>
 
         <p className="mt-6 flex flex-wrap items-center gap-2 text-xs text-faint">
           <Badge tone="neutral">Interface preview</Badge>
