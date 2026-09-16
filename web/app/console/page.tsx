@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 
+import { SealBackdrop } from '@/components/logo';
 import { StrategistConsole } from '@/components/strategist-console';
 import { LockIcon, PageHeader } from '@/components/ui';
 import { MY_STRATEGY_IDS, PRIVATE_FILLS, QUEUED_INTENTS, STRATEGIES } from '@/lib/data';
@@ -13,7 +14,9 @@ export default function ConsolePage() {
   const mine = STRATEGIES.filter((s) => MY_STRATEGY_IDS.includes(s.id));
 
   return (
-    <div className="mx-auto max-w-[1240px] px-5 py-14 sm:px-8">
+    <>
+      <SealBackdrop />
+      <div className="relative z-10 mx-auto max-w-[1240px] px-5 py-14 sm:px-8">
       <PageHeader
         eyebrow="Strategist console"
         title="Submit an intent"
@@ -29,6 +32,7 @@ export default function ConsolePage() {
       />
 
       <StrategistConsole strategies={mine} fills={PRIVATE_FILLS} queued={QUEUED_INTENTS} />
-    </div>
+      </div>
+    </>
   );
 }

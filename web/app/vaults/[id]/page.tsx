@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { SealBackdrop } from '@/components/logo';
 import { NavChart } from '@/components/nav-chart';
 import { Badge, Card, Delta, Eyebrow, LockIcon, PrivateBadge, Row, SideTag, TokenPill } from '@/components/ui';
 import { EPOCH, batchesFor, nettingRatio, strategyById, STRATEGIES } from '@/lib/data';
@@ -35,7 +36,9 @@ export default async function StrategyPage({ params }: PageProps) {
   const { mandate } = strategy;
 
   return (
-    <div className="mx-auto max-w-[1240px] px-5 py-14 sm:px-8">
+    <>
+      <SealBackdrop />
+      <div className="relative z-10 mx-auto max-w-[1240px] px-5 py-14 sm:px-8">
       <Link href="/vaults" className="font-mono text-xs text-faint transition-colors hover:text-muted">
         &larr; All vaults
       </Link>
@@ -200,6 +203,7 @@ export default async function StrategyPage({ params }: PageProps) {
           </Card>
         </aside>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

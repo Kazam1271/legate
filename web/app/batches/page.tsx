@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { BatchFeed } from '@/components/batch-feed';
+import { SealBackdrop } from '@/components/logo';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { BATCHES, EPOCH, LAST_24H } from '@/lib/data';
 import { num, ratioPct, usdCompact, utcTime } from '@/lib/format';
@@ -12,7 +13,9 @@ export const metadata: Metadata = {
 
 export default function BatchesPage() {
   return (
-    <div className="mx-auto max-w-[1240px] px-5 py-14 sm:px-8">
+    <>
+      <SealBackdrop />
+      <div className="relative z-10 mx-auto max-w-[1240px] px-5 py-14 sm:px-8">
       <PageHeader
         eyebrow="Public settlement layer"
         title="Batch transparency"
@@ -67,6 +70,7 @@ export default function BatchesPage() {
           </p>
         </Card>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

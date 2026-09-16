@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 
+import { SealBackdrop } from '@/components/logo';
 import { VaultExplorer } from '@/components/vault-explorer';
 import { PageHeader, ShieldIcon } from '@/components/ui';
 import { STRATEGIES } from '@/lib/data';
@@ -11,7 +12,9 @@ export const metadata: Metadata = {
 
 export default function VaultsPage() {
   return (
-    <div className="mx-auto max-w-[1240px] px-5 py-14 sm:px-8">
+    <>
+      <SealBackdrop />
+      <div className="relative z-10 mx-auto max-w-[1240px] px-5 py-14 sm:px-8">
       <PageHeader
         eyebrow="Capital allocation"
         title="Vault explorer"
@@ -27,6 +30,7 @@ export default function VaultsPage() {
       />
 
       <VaultExplorer strategies={STRATEGIES} />
-    </div>
+      </div>
+    </>
   );
 }
