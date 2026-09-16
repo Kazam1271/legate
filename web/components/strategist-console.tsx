@@ -284,7 +284,10 @@ export function StrategistConsole({ strategies, fills, queued }: ConsoleProps) {
         </div>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-6">
+          {/* min-w-0: FillsTable's min-w-[540px] would otherwise inflate this
+              whole column (and the page) instead of scrolling in its own
+              overflow-x-auto wrapper — same trap as the strategy detail page. */}
+          <div className="min-w-0 space-y-6">
             <IntentForm key={selected.id} strategy={selected} />
             {myFills.length > 0 ? <FillsTable fills={myFills} /> : null}
           </div>

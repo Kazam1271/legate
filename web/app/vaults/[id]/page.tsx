@@ -65,7 +65,11 @@ export default async function StrategyPage({ params }: PageProps) {
       </header>
 
       <div className="mt-10 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="space-y-6">
+        {/* min-w-0: without it, a grid item won't shrink below its content's
+            intrinsic width — and the batch-participation table's min-w-[520px]
+            would then inflate this whole column, and the page along with it,
+            instead of scrolling inside its own overflow-x-auto wrapper. */}
+        <div className="min-w-0 space-y-6">
           <Card className="p-5 sm:p-6">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="text-sm font-semibold">Net asset value</h2>

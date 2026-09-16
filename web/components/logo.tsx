@@ -193,11 +193,17 @@ export function LegateMark({
  */
 export function HeroBrand() {
   return (
-    <div className="flex items-center gap-4">
-      <LegateMark size={68} animated compact title="Legate" />
+    <div className="flex items-center gap-3 sm:gap-4">
+      {/* Two sizes, not a CSS scale on one mark: LegateMark sets width/height
+          as SVG attributes, not Tailwind classes, so it doesn't shrink with
+          its container on its own — same pattern as SealBackdrop. */}
+      <LegateMark size={44} animated compact title="Legate" className="sm:hidden" />
+      <LegateMark size={68} animated compact title="Legate" className="hidden sm:block" />
       <div className="flex flex-col items-start">
-        <p className="font-mono text-2xl font-semibold tracking-[0.34em] text-fg">LEGATE</p>
-        <p className="mt-2 font-mono text-xs uppercase tracking-[0.22em] text-faint">
+        <p className="font-mono text-lg font-semibold tracking-[0.22em] text-fg sm:text-2xl sm:tracking-[0.34em]">
+          LEGATE
+        </p>
+        <p className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-faint sm:mt-2 sm:text-xs sm:tracking-[0.22em]">
           Private execution infrastructure
         </p>
       </div>
