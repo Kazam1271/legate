@@ -32,12 +32,12 @@ function IntentForm({ strategy }: { strategy: Strategy }) {
 
   return (
     <Card className="p-5 sm:p-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div>
           <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-faint">Encrypted order</p>
           <h2 className="mt-2 text-xl font-semibold">New intent</h2>
         </div>
-        <Badge tone="private">
+        <Badge tone="private" className="w-fit whitespace-nowrap">
           <LockIcon />
           Encrypted end-to-end
         </Badge>
