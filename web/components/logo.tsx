@@ -194,7 +194,7 @@ export function LegateMark({
 export function HeroBrand() {
   return (
     <div className="flex items-center gap-4">
-      <LegateMark size={68} animated title="Legate" />
+      <LegateMark size={68} animated compact title="Legate" />
       <div className="flex flex-col items-start">
         <p className="font-mono text-2xl font-semibold tracking-[0.34em] text-fg">LEGATE</p>
         <p className="mt-2 font-mono text-xs uppercase tracking-[0.22em] text-faint">

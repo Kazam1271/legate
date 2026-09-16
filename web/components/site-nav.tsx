@@ -25,7 +25,7 @@ export function SiteNav() {
     <header className="sticky top-0 z-50 border-b border-line bg-canvas/85 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-[1240px] items-center gap-6 px-5 sm:px-8">
         <Link href="/" className="flex shrink-0 items-center gap-2.5" aria-label="Legate home">
-          <LegateMark size={34} animated />
+          <LegateMark size={30} animated compact />
           <span className="text-[15px] font-semibold tracking-[0.22em]">LEGATE</span>
         </Link>
 
