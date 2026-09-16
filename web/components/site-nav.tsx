@@ -4,21 +4,14 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 
+import { LegateMark } from '@/components/logo';
+
 const LINKS = [
   { href: '/', label: 'Overview' },
   { href: '/vaults', label: 'Vaults' },
   { href: '/batches', label: 'Batches' },
   { href: '/console', label: 'Console' },
 ];
-
-function Mark() {
-  return (
-    <svg viewBox="0 0 32 32" className="size-7 text-accent" aria-hidden>
-      <rect x="6" y="6" width="20" height="20" rx="3" transform="rotate(45 16 16)" stroke="currentColor" strokeWidth="1.8" fill="none" />
-      <rect x="12.5" y="12.5" width="7" height="7" rx="1.5" transform="rotate(45 16 16)" fill="currentColor" />
-    </svg>
-  );
-}
 
 export function SiteNav() {
   // usePathname, never window.location — the latter does not exist during the
@@ -32,7 +25,7 @@ export function SiteNav() {
     <header className="sticky top-0 z-50 border-b border-line bg-canvas/85 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-[1240px] items-center gap-6 px-5 sm:px-8">
         <Link href="/" className="flex shrink-0 items-center gap-2.5" aria-label="Legate home">
-          <Mark />
+          <LegateMark size={30} animated compact />
           <span className="text-[15px] font-semibold tracking-[0.22em]">LEGATE</span>
         </Link>
 

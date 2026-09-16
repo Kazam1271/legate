@@ -24,6 +24,10 @@ export const metadata: Metadata = {
   },
   description:
     'Legate routes encrypted trade intents through a confidential enclave on Horizen. Opposing flow is netted before the market ever sees it.',
+  icons: {
+    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+    shortcut: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

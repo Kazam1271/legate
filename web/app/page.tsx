@@ -1,5 +1,6 @@
 import Link from 'next/link';
 
+import { SealBackdrop } from '@/components/logo';
 import { NettingDiagram } from '@/components/netting-diagram';
 import { Badge, Card, Eyebrow, Row, ShieldIcon, Stat } from '@/components/ui';
 import { PROTOCOL_STATS } from '@/lib/data';
@@ -26,7 +27,9 @@ const STEPS = [
 export default function OverviewPage() {
   return (
     <>
-      <section className="mx-auto max-w-[1240px] px-5 pt-16 pb-20 sm:px-8 sm:pt-24">
+      <SealBackdrop />
+
+      <section className="relative z-10 mx-auto max-w-[1240px] px-5 pt-16 pb-20 sm:px-8 sm:pt-24">
         <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-16">
           <div className="animate-rise">
             <Eyebrow>Private execution infrastructure</Eyebrow>

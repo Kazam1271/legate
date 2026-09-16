@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <title>Legate</title>
+  <path d="M24 4 A20 20 0 0 1 24 44" fill="none" stroke="#e0a83d" stroke-width="3.6"/>
+  <path d="M24 4 A20 20 0 0 0 24 44" fill="none" stroke="#a78bfa" stroke-width="3.6"/>
+  <path d="M17 24 L45 24" fill="none" stroke="#f0bd58" stroke-width="4.2" stroke-linecap="round"/>
+  <circle cx="17" cy="24" r="3.2" fill="#f0bd58"/>
+</svg>

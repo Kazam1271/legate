@@ -39,7 +39,9 @@ html {
 }
 
 body {
-  background-color: var(--color-canvas);
+  /* Deliberately no background: html paints the canvas, which lets the fixed
+     seal backdrop sit at a negative z-index — behind the content, but still
+     above the page ground. Painting it here too would bury the backdrop. */
   color: var(--color-fg);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -178,6 +180,89 @@ body {
 }
 .animate-rise {
   animation: fade-rise 0.5s ease-out both;
+}
+
+/*
+ * The seal.
+ *
+ * The milled ring turns like a combination dial and the aperture creeps the
+ * other way, so the mark reads as a mechanism at rest rather than a picture.
+ * Hovering opens the aperture a notch — half a blade — and brightens the ray.
+ * All of it is CSS: a JS loop would need client state, and state the server
+ * cannot reproduce is what breaks hydration.
+ */
+@keyframes dial-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes dial-turn-reverse {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+.legate-seal .legate-dial,
+.legate-seal .legate-aperture,
+.legate-roll {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.legate-seal .legate-dial {
+  animation: dial-turn 90s linear infinite;
+}
+
+.legate-seal .legate-aperture {
+  animation: dial-turn-reverse 140s linear infinite;
+  transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.legate-seal .legate-ray {
+  transition: stroke 400ms ease;
+}
+
+.legate-seal:hover .legate-aperture,
+a:hover .legate-seal .legate-aperture {
+  animation-play-state: paused;
+  transform: rotate(30deg);
+}
+
+.legate-seal:hover .legate-ray,
+a:hover .legate-seal .legate-ray {
+  stroke: #ffd98a;
+}
+
+/*
+ * The backdrop rolls on its spot as the page scrolls. Scroll-driven CSS where
+ * it exists; a slow idle turn everywhere else, so the mark is never simply
+ * frozen.
+ */
+.legate-roll {
+  animation: dial-turn 240s linear infinite;
+}
+
+@keyframes backdrop-roll {
+  to {
+    transform: rotate(135deg);
+  }
+}
+
+@supports (animation-timeline: scroll()) {
+  .legate-roll {
+    animation: backdrop-roll 1s linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0% 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .legate-seal .legate-dial,
+  .legate-seal .legate-aperture,
+  .legate-roll {
+    animation: none !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
