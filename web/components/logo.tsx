@@ -123,7 +123,10 @@ export function LegateMark({
       ) : null}
       <circle cx="100" cy="100" r="67" fill="#121215" stroke="#8a6a26" strokeWidth="0.5" />
 
-      {isFull ? (
+      {/* Coarser hatching, not fine ticks — holds up at medium's larger
+          sizes, unlike the milled edge and beaded ring above, which stay
+          full-only. */}
+      {showRings ? (
         <circle
           cx="100"
           cy="100"
@@ -210,8 +213,8 @@ export function HeroBrand() {
       {/* Two sizes, not a CSS scale on one mark: LegateMark sets width/height
           as SVG attributes, not Tailwind classes, so it doesn't shrink with
           its container on its own — same pattern as SealBackdrop. */}
-      <LegateMark size={44} animated medium title="Legate" className="sm:hidden" />
-      <LegateMark size={68} animated medium title="Legate" className="hidden sm:block" />
+      <LegateMark size={52} animated medium title="Legate" className="sm:hidden" />
+      <LegateMark size={80} animated medium title="Legate" className="hidden sm:block" />
       <div className="flex flex-col items-start">
         <p className="font-mono text-lg font-semibold tracking-[0.22em] text-fg sm:text-2xl sm:tracking-[0.34em]">
           LEGATE
