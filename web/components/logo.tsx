@@ -26,6 +26,16 @@ export interface MarkProps {
   animated?: boolean;
   /** Drops the finest engraving, which only muddies things below ~40px. */
   compact?: boolean;
+  /**
+   * A middle tier between `compact` and full detail: brings back the plain
+   * rings and the corner accents, but keeps the multi-tick engravings
+   * (the beaded outer ring, the milled edge, the radial hatching) off —
+   * those are exactly the elements that resolve to fuzz once a size is small
+   * enough to want `compact` in the first place, just less small than 30px.
+   * For a spot that wants more presence than compact without going all the
+   * way to backdrop-level detail.
+   */
+  medium?: boolean;
   className?: string;
   title?: string;
 }
@@ -34,9 +44,12 @@ export function LegateMark({
   size = 32,
   animated = false,
   compact = false,
+  medium = false,
   className = '',
   title,
 }: MarkProps) {
+  const isFull = !compact && !medium;
+  const showRings = !compact; // medium and full both keep the plain rings
   return (
     <svg
       width={size}
@@ -51,7 +64,7 @@ export function LegateMark({
 
       <circle cx="100" cy="100" r="96" fill="none" stroke="#6b5220" strokeWidth="0.7" />
 
-      {compact ? null : (
+      {isFull ? (
         <circle
           cx="100"
           cy="100"
@@ -62,11 +75,11 @@ export function LegateMark({
           strokeLinecap="round"
           strokeDasharray="0.01 6.4"
         />
-      )}
+      ) : null}
 
-      {/* The milled edge, and the reason `compact` exists: seventy-odd ticks
-          resolve to fuzz below about 40px, so small sizes get a plain band
-          instead. Same silhouette, none of the crawling. */}
+      {/* The milled edge. Seventy-odd ticks resolve to fuzz below about
+          100px, so anything short of full detail gets a plain band instead —
+          same silhouette, none of the crawling. */}
       <circle
         className="legate-dial"
         cx="100"
@@ -74,30 +87,30 @@ export function LegateMark({
         r="87"
         fill="none"
         stroke="#e0a83d"
-        strokeWidth={compact ? 2.4 : 7}
-        strokeDasharray={compact ? undefined : '1.1 6.5'}
+        strokeWidth={isFull ? 7 : 2.4}
+        strokeDasharray={isFull ? '1.1 6.5' : undefined}
       />
 
-      {compact ? null : (
+      {showRings ? (
         <circle cx="100" cy="100" r="81.5" fill="none" stroke="#e0a83d" strokeWidth="1.3" />
-      )}
+      ) : null}
 
       {/* Public half. */}
       <path
         d="M100 24 A76 76 0 0 1 100 176"
         fill="none"
         stroke="#e0a83d"
-        strokeWidth={compact ? 3 : 2}
+        strokeWidth={isFull ? 2 : 3}
       />
       {/* Private half. */}
       <path
         d="M100 24 A76 76 0 0 0 100 176"
         fill="none"
         stroke="#a78bfa"
-        strokeWidth={compact ? 3 : 2}
+        strokeWidth={isFull ? 2 : 3}
       />
 
-      {compact ? null : (
+      {showRings ? (
         <circle
           cx="100"
           cy="100"
@@ -107,10 +120,10 @@ export function LegateMark({
           strokeWidth="0.5"
           strokeDasharray="3 4"
         />
-      )}
+      ) : null}
       <circle cx="100" cy="100" r="67" fill="#121215" stroke="#8a6a26" strokeWidth="0.5" />
 
-      {compact ? null : (
+      {isFull ? (
         <circle
           cx="100"
           cy="100"
@@ -120,11 +133,11 @@ export function LegateMark({
           strokeWidth="12"
           strokeDasharray="0.9 7.1"
         />
-      )}
+      ) : null}
 
-      {compact ? null : (
+      {showRings ? (
         <circle cx="100" cy="100" r="55" fill="none" stroke="#8a6a26" strokeWidth="0.55" />
-      )}
+      ) : null}
 
       {/* The enclave, shut. Counter-rotates against the dial, and opens a notch
           on hover — the only interaction the mark permits. */}
@@ -132,7 +145,7 @@ export function LegateMark({
         className="legate-aperture"
         fill="#17171b"
         stroke="#b8862c"
-        strokeWidth={compact ? 1.6 : 0.8}
+        strokeWidth={isFull ? 0.8 : compact ? 1.6 : 1.2}
         strokeLinejoin="round"
       >
         {BLADE_ANGLES.map((angle) => (
@@ -141,7 +154,7 @@ export function LegateMark({
       </g>
 
       <circle cx="100" cy="100" r="25" fill="none" stroke="#8a6a26" strokeWidth="0.55" />
-      {compact ? null : (
+      {isFull ? (
         <circle
           cx="100"
           cy="100"
@@ -152,14 +165,14 @@ export function LegateMark({
           strokeLinecap="round"
           strokeDasharray="0.01 5.9"
         />
-      )}
+      ) : null}
 
-      {compact ? null : (
+      {showRings ? (
         <g fill="#c98f2e">
           <path d="M167.88 25.12 L174.88 32.12 L167.88 39.12 L160.88 32.12 Z" />
           <path d="M32.12 25.12 L39.12 32.12 L32.12 39.12 L25.12 32.12 Z" />
         </g>
-      )}
+      ) : null}
 
       {/* Encrypted intents arriving. */}
       <g stroke="#a78bfa" strokeWidth="2.4" strokeLinecap="round" fill="none">
@@ -197,8 +210,8 @@ export function HeroBrand() {
       {/* Two sizes, not a CSS scale on one mark: LegateMark sets width/height
           as SVG attributes, not Tailwind classes, so it doesn't shrink with
           its container on its own — same pattern as SealBackdrop. */}
-      <LegateMark size={44} animated compact title="Legate" className="sm:hidden" />
-      <LegateMark size={68} animated compact title="Legate" className="hidden sm:block" />
+      <LegateMark size={44} animated medium title="Legate" className="sm:hidden" />
+      <LegateMark size={68} animated medium title="Legate" className="hidden sm:block" />
       <div className="flex flex-col items-start">
         <p className="font-mono text-lg font-semibold tracking-[0.22em] text-fg sm:text-2xl sm:tracking-[0.34em]">
           LEGATE
