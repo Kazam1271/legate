@@ -47,6 +47,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 Transparency
               </Link>
               <a
+                href="https://github.com/Kazam1271/legate/blob/main/docs/ARCHITECTURE.md"
+                className="hover:text-muted"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Docs
+              </a>
+              <a
                 href="https://github.com/Kazam1271/legate"
                 className="hover:text-muted"
                 target="_blank"

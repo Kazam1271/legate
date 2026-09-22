@@ -55,13 +55,15 @@ export default function OverviewPage() {
                 Explore vaults
                 <span aria-hidden>&#8599;</span>
               </Link>
-              <Link
-                href="/batches"
+              <a
+                href="https://github.com/Kazam1271/legate/blob/main/docs/ARCHITECTURE.md"
+                target="_blank"
+                rel="noreferrer"
                 className="inline-flex items-center gap-2 rounded-lg border border-line px-5 py-3 text-sm text-fg transition-colors hover:border-line-strong"
               >
                 Read the architecture
                 <span aria-hidden>&rsaquo;</span>
-              </Link>
+              </a>
             </div>
           </div>
 
