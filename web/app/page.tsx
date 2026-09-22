@@ -5,6 +5,7 @@ import { HeroBrand, SealBackdrop } from '@/components/logo';
 import { NettingDiagram } from '@/components/netting-diagram';
 import { Reveal } from '@/components/reveal';
 import { Badge, Card, Eyebrow, Row, ShieldIcon, Stat } from '@/components/ui';
+import { Waitlist } from '@/components/waitlist';
 import { PROTOCOL_STATS } from '@/lib/data';
 import { ratioPct, staggerMs, utcTime } from '@/lib/format';
 
@@ -174,6 +175,26 @@ export default function OverviewPage() {
           <Badge tone="neutral">Interface preview</Badge>
           Representative data. Not connected to a live deployment.
         </p>
+      </section>
+
+      {/* The one live thing on an otherwise mocked page: a real signup that
+          actually reaches the strategist and depositor waitlist. */}
+      <section className="mx-auto max-w-[1240px] px-5 pb-20 sm:px-8">
+        <Reveal>
+          <Card className="flex flex-col gap-6 p-8 sm:p-10">
+            <div className="max-w-xl">
+              <Eyebrow>Early access</Eyebrow>
+              <h2 className="mt-3 text-[24px] font-semibold tracking-[-0.02em] sm:text-[28px]">
+                Get notified when strategy slots open.
+              </h2>
+              <p className="mt-3 text-[14px] leading-relaxed text-muted">
+                Legate isn&rsquo;t live yet. Join the waitlist and we&rsquo;ll reach out when the
+                first vaults open to strategists and depositors.
+              </p>
+            </div>
+            <Waitlist />
+          </Card>
+        </Reveal>
       </section>
     </>
   );
