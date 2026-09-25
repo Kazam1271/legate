@@ -77,7 +77,8 @@ export async function sendWaitlistConfirmation(to: string): Promise<void> {
   }
 
   const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
+  // Google displays app passwords as four groups of four; the spaces aren't part of it.
+  const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, '');
   if (!user || !pass) {
     console.warn('waitlist confirmation skipped: no RESEND_API_KEY or GMAIL_* credentials set');
     return;
