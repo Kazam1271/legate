@@ -1,7 +1,13 @@
-import { put } from '@vercel/blob';
-import { NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { put } from '@vercel/blob';
+import { after, NextResponse } from 'next/server';
+
+import { sendWaitlistConfirmation } from '@/lib/waitlist-email';
+
+// Deliberately narrow: no commas, brackets or quotes, so the address can only
+// ever name one recipient when it is handed to the mailer.
+const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/;
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
@@ -16,10 +22,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Enter a valid email address.' }, { status: 400 });
   }
 
-  await put(
-    `waitlist/${Date.now()}-${crypto.randomUUID()}.json`,
-    JSON.stringify({ email, submittedAt: new Date().toISOString() }),
-    { access: 'private', contentType: 'application/json' },
+  // One object per address, named by its hash: a repeat signup collides with the
+  // existing object instead of adding a duplicate, so the list counts unique
+  // people and only a first signup ever triggers an email.
+  const key = createHash('sha256').update(email).digest('hex');
+  try {
+    await put(
+      `waitlist/${key}.json`,
+      JSON.stringify({ email, submittedAt: new Date().toISOString() }),
+      { access: 'private', contentType: 'application/json', allowOverwrite: false },
+    );
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('already exists')) {
+      return NextResponse.json({ ok: true });
+    }
+    throw err;
+  }
+
+  after(() =>
+    sendWaitlistConfirmation(email).catch((err) => {
+      console.error('waitlist confirmation failed', err);
+    }),
   );
 
   return NextResponse.json({ ok: true });
