@@ -19,8 +19,17 @@ const HTML = `<!doctype html>
         <td align="center" style="padding:40px 16px;">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#121215;border:1px solid #26262c;border-radius:10px;">
             <tr>
-              <td style="padding:32px 32px 8px;font-family:'SFMono-Regular',Consolas,monospace;font-size:13px;letter-spacing:0.34em;color:#ececee;">
-                LEGATE
+              <td style="padding:32px 32px 8px;">
+                <table role="presentation" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="padding-right:14px;vertical-align:middle;">
+                      <img src="https://www.legate.finance/brand/mark-email.png" width="72" height="72" alt="Legate" style="display:block;border:0;outline:none;text-decoration:none;">
+                    </td>
+                    <td style="vertical-align:middle;font-family:'SFMono-Regular',Consolas,monospace;font-size:14px;letter-spacing:0.34em;color:#ececee;">
+                      LEGATE
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
             <tr>
