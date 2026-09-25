@@ -51,15 +51,35 @@ const HTML = `<!doctype html>
 </html>`;
 
 /**
- * Sends the "you're on the list" confirmation from the Legate Gmail account.
- * Does nothing when the credentials aren't configured (local dev, or a deploy
- * that hasn't been given them yet) so a missing env var never breaks signup.
+ * Sends the "you're on the list" confirmation: through Resend from the
+ * legate.finance domain when RESEND_API_KEY is set, otherwise over Gmail SMTP.
+ * Does nothing when neither is configured (local dev, or a deploy that hasn't
+ * been given credentials yet) so a missing env var never breaks signup.
  */
 export async function sendWaitlistConfirmation(to: string): Promise<void> {
+  const resendKey = process.env.RESEND_API_KEY;
+  if (resendKey) {
+    const from = process.env.WAITLIST_FROM ?? 'hello@legate.finance';
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: `Legate <${from}>`,
+        to: [to],
+        reply_to: process.env.WAITLIST_REPLY_TO ?? 'legatefinance@gmail.com',
+        subject: SUBJECT,
+        text: TEXT,
+        html: HTML,
+      }),
+    });
+    if (!res.ok) throw new Error(`Resend ${res.status}: ${await res.text()}`);
+    return;
+  }
+
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) {
-    console.warn('waitlist confirmation skipped: GMAIL_USER / GMAIL_APP_PASSWORD not set');
+    console.warn('waitlist confirmation skipped: no RESEND_API_KEY or GMAIL_* credentials set');
     return;
   }
 
